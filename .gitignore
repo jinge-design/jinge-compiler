@@ -1,0 +1,13 @@
+node_modules
+/.idea
+/.tmp
+/.vscode
+**/.DS_Store
+/dist
+/lib
+/types
+/compiler
+src/**/*.js
+*.tokens
+.antlr
+*.interp

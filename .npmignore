@@ -1,0 +1,10 @@
+node_modules
+/.idea
+/.tmp
+/.vscode
+**/.DS_Store
+/build
+*.g4
+*.tokens
+*.interp
+.antlr
