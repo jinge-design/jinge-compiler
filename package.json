@@ -1,0 +1,68 @@
+{
+  "name": "jinge",
+  "version": "3.1.0",
+  "description": "A Messenger, Proxy and Compiler based MVVM framework",
+  "main": "lib/index.js",
+  "types": "src/index.ts",
+  "scripts": {
+    "build:g4": "node ./scripts/parse_g4.js",
+    "build:compiler": "node ./scripts/gen_compiler.js",
+    "build": "npm run build:g4 && build:compiler",
+    "lint": "tsc --noEmit && eslint './{src,scripts}/**/*.{js,ts}' --fix",
+    "lint-staged": "lint-staged",
+    "postinstall": "husky install",
+    "prepublish": "npm run build"
+  },
+  "lint-staged": {
+    "*.{js,ts}": "eslint --fix"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jinge-design/jinge.git"
+  },
+  "license": "ISC",
+  "homepage": "https://github.com/jinge-design/jinge#readme",
+  "bugs": {
+    "url": "https://github.com/jinge-design/jinge-compiler/issues"
+  },
+  "keywords": [
+    "mvvm",
+    "spa"
+  ],
+  "author": "Yuhang Ge <abeyuhang@gmail.com>",
+  "peerDependencies": {
+    "jinge": "^3.1.0"
+  },
+  "dependencies": {
+    "acorn": "^8.7.1",
+    "acorn-walk": "^8.2.0",
+    "antlr4-build": "4.10.1-beta.10",
+    "clean-css": "^5.3.0",
+    "csv-parse": "^5.0.4",
+    "csv-stringify": "^6.0.5",
+    "escodegen": "^2.0.0",
+    "html-entities": "^2.3.3",
+    "html-tags": "^3.2.0",
+    "svg-tags": "^1.0.0",
+    "webpack-sources": "^3.2.3"
+  },
+  "devDependencies": {
+    "@types/estree": "^0.0.51",
+    "@types/node": "^17.0.29",
+    "@types/svg-tags": "^1.0.0",
+    "@typescript-eslint/eslint-plugin": "^5.21.0",
+    "@typescript-eslint/parser": "^5.21.0",
+    "esbuild": "^0.14.38",
+    "eslint": "^8.14.0",
+    "eslint-config-prettier": "^8.5.0",
+    "eslint-import-resolver-typescript": "^2.7.1",
+    "eslint-plugin-import": "^2.26.0",
+    "eslint-plugin-prettier": "^4.0.0",
+    "glob": "^8.0.1",
+    "husky": "^7.0.4",
+    "lint-staged": "^12.4.1",
+    "prettier": "^2.6.2",
+    "typescript": "^4.6.3",
+    "webpack": "^5.72.0"
+  }
+}

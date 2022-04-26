@@ -1,0 +1,303 @@
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { RawSource } = require('webpack-sources');
+const { stringify: csvStringify } = require('csv-stringify/sync');
+const { parse: csvParse } = require('csv-parse/sync');
+const _util = require('./util');
+const { sharedOptions } = require('./options').default;
+const { getSymbolPostfix } = require('./util');
+const { execSync } = require('child_process');
+/**
+ * 所有 i18n 字典资源文件里渲染函数可能依赖的服务。
+ */
+const i18nRenderDeps = [
+  'Component',
+  '__',
+  '$$',
+  'setText',
+  'ViewModelCoreImpl',
+  'attrs',
+  'vm',
+  'i18n',
+  'createElement',
+  'setAttribute',
+  'createElementWithoutAttrs',
+  'createTextNode',
+  'I18nComponent',
+  'ParameterComponent',
+  'assertRenderResults',
+  'textRenderFn',
+  'emptyRenderFn',
+  'i18nRenderFn',
+  'errorRenderFn',
+  'arrayEqual',
+  'createSVGElement',
+  'createSVGElementWithoutAttrs',
+];
+const i18nRenderDepsRegisterFile = `register_i18n_render_deps_${getSymbolPostfix()}.js`; // path.resolve(__dirname, '../lib/__register_i18n_render_deps.js');
+
+function key2prop(key) {
+  return /^[0-9]/.test(key) || /[^\d\w$_]/.test(key) ? JSON.stringify(key) : key;
+}
+function compare(a, b) {
+  return a.location === b.location ? 0 : a.location > b.location ? 1 : -1;
+}
+let tmpDir;
+function mktmpdir() {
+  if (tmpDir) return tmpDir;
+  
+  return tmpDir;
+}
+
+const calcI18nTextHash = (() => {
+  const cache = new Map();
+  return (text) => {
+    const hash = crypto.createHash('md5').update(text).digest('hex');
+    if (cache.has(hash)) {
+      let n = cache.get(hash) + 1;
+      cache.set(hash, n);
+      return hash + '_' + n;
+    } else {
+      cache.set(hash, 0);
+      return hash;
+    }
+  };
+})();
+
+class I18nManager {
+  constructor() {
+    this.written = false;
+    this.defaultLocale = null;
+    this.targetLocales = null;
+    this._inited = false;
+    // 引用 webpack 的 warnings，用于向 webpack 输出告警。
+    this.webpackCompilationWarnings = null;
+  }
+
+  /**
+   * initialize if need
+   */
+  initialize() {
+    if (this._inited) return;
+    this._inited = true;
+   
+    this.defaultLocale = {
+      name: sharedOptions.i18n.defaultLocale,
+      translatedCsv: [],
+      nonTranslatedCsv: [],
+      csvMeta: new Map(),
+      meta: {
+        dicts: new Map(),
+        renders: new Map(),
+        attrs: new Map(),
+      },
+      output: {
+        dicts: [],
+        renders: [],
+        attrs: [],
+      },
+    };
+    this.targetLocales = [];
+    this.loadTargetCSV();
+  }
+
+  assertPluginInstalled() {
+    if (this._inited) return;
+    throw new Error('<_t> component or "_t:" attribute require JingeWebpackPlugin and i18n options');
+  }
+
+  _register(text, resourcePath, type, renderFnCb, multiChunkCallback) {
+    const location = path.relative(sharedOptions.i18n.idBaseDir, resourcePath);
+    const tmpDir = mktmpdir();
+    const locDir = path.join(tmpDir, location);
+    execSync(`mkdir -p ${locDir}`);
+    // insert csv row if needed
+    const csvInfo = this.defaultLocale.csvMeta.get(text);
+    if (!this.written && (!csvInfo || !csvInfo.has(location))) {
+      if (!csvInfo) {
+        const m = new Map();
+        m.set(location, true);
+        this.defaultLocale.csvMeta.set(text, m);
+      } else {
+        csvInfo.set(location, true);
+      }
+      this.defaultLocale.nonTranslatedCsv.push({
+        location,
+        src: text,
+      });
+      this.targetLocales.forEach((targetLocale) => {
+        const targetInfo = targetLocale.meta.dicts.get(text);
+        let translateText = null;
+        if (targetInfo?.entries.has(location)) {
+          translateText = targetInfo.entries.get(location).text;
+        }
+        const csvRow = {
+          location,
+          src: text,
+          text: translateText,
+        };
+        if (!_util.isString(translateText) || !translateText) {
+          targetLocale.nonTranslatedCsv.push(csvRow);
+        } else {
+          targetLocale.translatedCsv.push(csvRow);
+        }
+      });
+    }
+    
+    const key = calcI18nTextHash(text);
+
+    // register locale resource
+    const meta = this.defaultLocale.meta[type];
+    let info = meta.get(text);
+    /*
+     * 对于某个待翻译的中文文本，如果已经翻译的 csv 资源中，所有该原始文本对应的翻译文本都是一样，
+     *  比如，假设待翻译的是“很好”，在 en.csv 中全部是 "good"，那么就可以合并。
+     *
+     * 如果已经判断过（info !== null）或者已经输出过(this.written === true)，则不需要再判断。
+     */
+    const shouldMerge = info
+      ? info.shouldMerge
+      : this.written ||
+        !this.targetLocales.some((targetLocale) => {
+          const targetInfo = targetLocale.meta[type].get(text);
+          return targetInfo && !targetInfo.allSame;
+        });
+    
+  }
+
+  /**
+   * add text to defalut locale dictionary, return dictionary key.
+   */
+  registerToDict(text, resourcePath) {
+    return ''; // this._register(text, resourcePath, 'dicts');
+  }
+
+  /**
+   * add code of render function to default locale render map, return render key.
+   * @param {String} renderFnCode
+   */
+  registerToRender(text, resourcePath, generateRenderFnCallback, multiChunkCallback) {
+    return this._register(text, resourcePath, 'renders', generateRenderFnCallback, multiChunkCallback);
+  }
+
+  registerToAttr(text, resourcePath, wrapperFnCallback, multiChunkCallback) {
+    return this._register(text, resourcePath, 'attrs', wrapperFnCallback, multiChunkCallback);
+  }
+
+  /**
+   * @param {String} depId
+   */
+  registerRenderDep(depId) {
+    let idx = -1;
+    let first = false;
+    if (!this.renderDeps.map.has(depId)) {
+      first = true;
+      idx = this.renderDeps.arr.length;
+      this.renderDeps.arr.push(depId);
+      this.renderDeps.map.set(depId, idx);
+    } else {
+      idx = this.renderDeps.map.get(depId);
+    }
+
+    const postfix = sharedOptions.symbolPostfix;
+    if (!depId.endsWith(postfix)) {
+      return first ? idx : -1;
+    }
+    const dep = depId.substring(0, depId.length - postfix.length);
+    if (!(dep in this.renderDeps.inner)) {
+      throw new Error('unknown dep:' + dep);
+    }
+    this.renderDeps.inner[dep] = idx;
+    return -1;
+  }
+
+  writeOutput(compilation) {
+    if (!this._inited || this.written) return;
+    this.written = true;
+    if (sharedOptions.i18n.extractMode) {
+      this.writeTranslateCSV(this.defaultLocale);
+      this.targetLocales.forEach((locale) => this.writeTranslateCSV(locale));
+    } else {
+      // do nothing
+    }
+  }
+
+  async writeExtractCSV(locale) {
+    const dn = this.defaultLocale.name;
+    const columns = [
+      {
+        key: 'location',
+      },
+      {
+        key: 'src',
+      },
+    ];
+    if (locale.name !== dn) {
+      columns.push({
+        key: 'text',
+      });
+    }
+    const records = locale.nonTranslatedCsv.sort(compare).concat(locale.translatedCsv.sort(compare));
+    const content = csvStringify(records, {
+      columns,
+    });
+    await fs.promises.writeFile(
+      path.join(sharedOptions.i18n.translateDir, `translate.${locale.name}.csv`),
+      `location,${dn}${locale.name === dn ? '' : `,${locale.name}`}` + '\n' + content,
+    );
+  }
+
+  loadTargetCSV() {
+    fs.readdirSync(sharedOptions.i18n.translateDir).forEach((file) => {
+      const m = file.match(/^translate\.([\w_-]+)\.csv$/);
+      if (!m) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `Warning: ${file} under translate directory will be ignored as file name not match format "translate.{LOCALE}.csv"`,
+        );
+        return;
+      }
+      const locale = m[1].toLowerCase();
+      if (locale !== sharedOptions.i18n.defaultLocale) {
+        const targetMeta = {
+          dicts: new Map(),
+          renders: new Map(),
+          attrs: new Map(),
+        };
+        try {
+          parseCsvContent(
+            fs.readFileSync(path.join(sharedOptions.i18n.translateDir, file), 'utf-8'),
+            sharedOptions.i18n.defaultLocale,
+            locale,
+            targetMeta.dicts,
+          );
+          targetMeta.dicts.forEach((info, text) => {
+            targetMeta.renders.set(text, _util.deepClone(info));
+            targetMeta.attrs.set(text, _util.deepClone(info));
+          });
+          this.targetLocales.push({
+            name: locale,
+            meta: targetMeta,
+            translatedCsv: [], // records which are translated
+            nonTranslatedCsv: [], // records which are not translated
+            output: {
+              dicts: [],
+              renders: [],
+              attrs: [],
+            },
+          });
+        } catch (ex) {
+          // eslint-disable-next-line no-console
+          console.error(ex);
+        }
+      }
+    });
+  }
+}
+
+module.exports = {
+  i18nManager: new I18nManager(),
+  i18nRenderDeps,
+  i18nRenderDepsRegisterFile,
+};

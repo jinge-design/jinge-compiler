@@ -1,0 +1,13 @@
+node_modules
+/.idea
+/.tmp
+/.vscode
+**/.DS_Store
+.jshintignore
+.jshintrc
+.jshint
+.jshint.json
+/dist
+/lib
+/types
+/compiler
