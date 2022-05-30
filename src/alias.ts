@@ -1,6 +1,6 @@
 import crypto from 'crypto';
-import { sharedOptions } from './options';
-import { isArray, isObject } from './util';
+// import { sharedOptions } from './options';
+import { SYMBOL_POSTFIX, isArray, isObject } from './util';
 
 export type ComponentAlias = Record<string, Record<string, string | string[]>>;
 
@@ -53,19 +53,14 @@ export class ComponentAliasManager {
 
   initialize(componentAlias: ComponentAlias) {
     this.aliasPostfix =
-      '_' +
-      crypto
-        .createHmac('sha256', 'component-alias-postfix')
-        .update(sharedOptions.symbolPostfix)
-        .digest('hex')
-        .slice(0, 12);
+      '_' + crypto.createHmac('sha256', 'component-alias-postfix').update(SYMBOL_POSTFIX).digest('hex').slice(0, 12);
     if (Array.isArray(componentAlias)) {
       componentAlias = Object.assign({}, ...componentAlias);
     }
     componentAlias = mergeAlias(componentAlias || {}, {
       jinge: {
         LogComponent: 'log',
-        I18nComponent: 'i18n',
+        // I18nComponent: 'i18n',
         IfComponent: 'if',
         ForComponent: 'for',
         SwitchComponent: 'switch',

@@ -1,11 +1,10 @@
 import { ParserRuleContext } from 'antlr4-build';
-import { convertAttributeName } from '../../util';
-import { sharedOptions } from '../../options';
+import { convertAttributeName, prependTab, SYMBOL_POSTFIX } from '../../util';
 import { logParseError, prependTab2Space, replaceTpl } from './helper';
 import { parseAttributes, ParseAttributesCtx } from './parseAttributes';
 import { TemplateVisitor, VisitChildNodesCtx } from './visitor';
 import * as TPL from './tpl';
-import { parseI18nAttribute } from './parseI18nAttribute';
+// import { parseI18nAttribute } from './parseI18nAttribute';
 import { ParsedElement } from './common';
 import { parseArgUseParameter } from './parseArgUseParameter';
 
@@ -51,7 +50,7 @@ export function parseComponentElement(
     : '';
   const vmLevel = result.vms.length > 0 ? result.vms[result.vms.length - 1].level : -1;
   if (tag === '_slot' && result.argUse) {
-    return parseArgUseParameter(this, elements, result.argUse, result.vmPass, vmLevel);
+    return parseArgUseParameter(_visitor, elements, result.argUse, result.vmPass, vmLevel);
   }
 
   if (tag === '_slot' && result.argPass) {
@@ -76,14 +75,14 @@ export function parseComponentElement(
 
   const attrs = [];
   result.argAttrs.length > 0 && attrs.push(...result.argAttrs.map((at) => `${convertAttributeName(at[0])}: null`));
-  result.translateAttrs.length > 0 && attrs.push(...result.translateAttrs.map((at) => `${at[0]}: null`));
+  // result.translateAttrs.length > 0 && attrs.push(...result.translateAttrs.map((at) => `${at[0]}: null`));
   result.constAttrs.length > 0 &&
     attrs.push(...result.constAttrs.map((at) => `${convertAttributeName(at[0])}: ${JSON.stringify(at[1])}`));
 
-  const vmAttrs = `const attrs = attrs${sharedOptions.symbolPostfix}({
-[__${sharedOptions.symbolPostfix}]: {
-${!_visitor._isProdMode ? `    debugName: "attrs_of_<${tag}>",` : ''}
-${prependTab2Space(`  context: component[__${sharedOptions.symbolPostfix}].context,`)}
+  const vmAttrs = `const attrs = attrs${SYMBOL_POSTFIX}({
+  [__${SYMBOL_POSTFIX}]: {
+${_visitor._addDebugName ? `    debugName: "attrs_of_<${tag}>",` : ''}
+${prependTab2Space(`  context: component[__${SYMBOL_POSTFIX}].context,`)}
 ${
   result.listeners.length > 0
     ? prependTab2Space(`  listeners: {
@@ -99,28 +98,28 @@ ${result.listeners.map(
 ${
   elements.length > 0
     ? prependTab2Space(`  slots: {
-${elements.map((el) => `    '${el.argPass}': ${el.value}`).join(',\n')}
-}`)
+${elements.map((el) => prependTab(`'${el.argPass}': ${el.value}`, false, 4)).join(',\n')}
+  }`)
     : ''
 }
-},
+  },
 ${prependTab2Space(attrs.join(',\n'), true)}
 });
 ${result.argAttrs
   .map((at, i) =>
     replaceTpl(at[1], {
-      REL_COM: `component[$$${sharedOptions.symbolPostfix}]`,
+      REL_COM: `component[$$${SYMBOL_POSTFIX}]`,
       ROOT_INDEX: i.toString(),
       RENDER_START: `attrs.${at[0]} = `,
       RENDER_END: ';',
     }),
   )
-  .join('\n')}
-${result.translateAttrs
-  .map((at, i) => {
-    return parseI18nAttribute(_visitor, at, result.argAttrs.length + i, false);
-  })
   .join('\n')}`;
+  // ${result.translateAttrs
+  //   .map((at, i) => {
+  //     return parseI18nAttribute(_visitor, at, result.argAttrs.length + i, false);
+  //   })
+  //   .join('\n')}`;
 
   const code =
     '...(() => {\n' +
@@ -128,7 +127,8 @@ ${result.translateAttrs
       `
 ${vmAttrs}
 const el = ${Component}.create(attrs);
-${result.translateAttrs
+${
+  /*result.translateAttrs
   .map((at, i) => {
     const attr = at[1];
     if (attr.type === 'const') {
@@ -141,10 +141,11 @@ ${result.translateAttrs
       });
     }
   })
-  .join('\n')}
+.join('\n')*/ ''
+}
 ${setRefCode}
 ${_visitor._parent.type === 'component' ? replaceTpl(TPL.PUSH_ROOT_ELE) : replaceTpl(TPL.PUSH_COM_ELE)}
-return assertRenderResults${sharedOptions.symbolPostfix}(el.__render());`,
+return assertRenderResults${SYMBOL_POSTFIX}(el.__render());`,
       true,
     ) +
     '\n})()';
@@ -156,7 +157,7 @@ return assertRenderResults${sharedOptions.symbolPostfix}(el.__render());`,
   };
 
   if (result.argUse) {
-    return parseArgUseParameter(this, [rtnEl], result.argUse, result.vmPass, vmLevel);
+    return parseArgUseParameter(_visitor, [rtnEl], result.argUse, result.vmPass, vmLevel);
   }
   if (result.argPass) {
     return {

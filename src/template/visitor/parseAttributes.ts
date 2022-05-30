@@ -1,5 +1,5 @@
 import { ParserRuleContext } from 'antlr4-build';
-import { i18nManager } from '../../i18n';
+// import { i18nManager } from '../../i18n';
 import { Parent, VM } from './common';
 import { KNOWN_ATTR_TYPES } from './const';
 import { parseAttributeValue } from './parseAttributeValue';
@@ -30,7 +30,7 @@ type Lis = [string, string, Record<string, boolean>];
 export interface ParseAttributesResult {
   constAttrs: [string, string | boolean][];
   argAttrs: [string, string][];
-  translateAttrs: [string, TranslateAttribute][];
+  // translateAttrs: [string, TranslateAttribute][];
   listeners: [string, { code: string; tag: Record<string, boolean> }][];
   vms: VM[];
   vmPass: VMPassAttribute[];
@@ -48,15 +48,15 @@ export function parseAttributes(
   _visitor: TemplateVisitor,
   mode: 'html' | 'component',
   tag: string,
-  ctx: ParseAttributesCtx,
+  ctx: ParserRuleContext,
   parentInfo: Parent,
 ): ParseAttributesResult {
-  const attrCtxs = ctx.htmlAttribute();
+  const attrCtxs = (ctx as unknown as ParseAttributesCtx).htmlAttribute();
   if (!attrCtxs || attrCtxs.length === 0) {
     return {
       constAttrs: [],
       argAttrs: [],
-      translateAttrs: [],
+      // translateAttrs: [],
       listeners: [],
       vms: [],
       vmPass: [],
@@ -72,7 +72,7 @@ export function parseAttributes(
     };
   }
   const constAttrs: Record<string, string | boolean> = {};
-  const translateAttrs: Record<string, TranslateAttribute> = {};
+  // const translateAttrs: Record<string, TranslateAttribute> = {};
   const argAttrs: Record<string, string> = {};
   const listeners: Record<string, Lis> = {};
   const vms: VM[] = [];
@@ -136,7 +136,7 @@ export function parseAttributes(
     const atv = attrCtx.ATTR_VALUE();
     let aval = atv ? atv.getText().trim() : '';
     // extract from quote
-    if (aval) aval = aval.slice(1, aval.length - 2).trim();
+    if (aval) aval = aval.slice(1, aval.length - 1).trim();
 
     if (a_category === 'vm-use') {
       if (!a_name) _visitor._throwParseError(attrCtx.start, 'vm-use type attribute require reflect variable name.');
@@ -231,13 +231,13 @@ export function parseAttributes(
       return;
     }
 
-    if (a_name in translateAttrs || a_name in constAttrs || a_name in argAttrs) {
+    if (/* a_name in translateAttrs || */ a_name in constAttrs || a_name in argAttrs) {
       _visitor._throwParseError(attrCtx.start, 'dulplicated attribute: ' + a_name);
     }
     if (!aval) {
-      if (a_category === '_t') {
-        _visitor._throwParseError(attrCtx.start, 'attribute with _t: type require non-empty value');
-      }
+      // if (a_category === '_t') {
+      //   _visitor._throwParseError(attrCtx.start, 'attribute with _t: type require non-empty value');
+      // }
       if (a_category === 'expr') {
         _visitor._throwParseError(attrCtx.start, 'Attribute with expression type must have value.');
       }
@@ -245,24 +245,24 @@ export function parseAttributes(
       return;
     }
 
-    if (a_category === '_t') {
-      if (!a_name || !aval) _visitor._throwParseError(attrCtx.start, '_t: type attribute require name and value.');
-      if (i18nManager.written) {
-        /**
-         * 如果多语言脚本资源已经处理过了（i18nManager.written === true），说明是在
-         *   启用了 watch 的研发模式下，文件发生变化后重新编译，这种情况下，由于多方面的复杂
-         *   问题不好解决，暂时先简化为不做多语言的处理。
-         */
-        a_category = 'str';
-      } else {
-        translateAttrs[a_name] = {
-          type: aval.indexOf('${') >= 0 ? 'expr' : 'const',
-          value: aval,
-          ctx: ctx,
-        };
-        return;
-      }
-    }
+    // if (a_category === '_t') {
+    //   if (!a_name || !aval) _visitor._throwParseError(attrCtx.start, '_t: type attribute require name and value.');
+    //   if (i18nManager.written) {
+    //     /**
+    //      * 如果多语言脚本资源已经处理过了（i18nManager.written === true），说明是在
+    //      *   启用了 watch 的研发模式下，文件发生变化后重新编译，这种情况下，由于多方面的复杂
+    //      *   问题不好解决，暂时先简化为不做多语言的处理。
+    //      */
+    //     a_category = 'str';
+    //   } else {
+    //     translateAttrs[a_name] = {
+    //       type: aval.indexOf('${') >= 0 ? 'expr' : 'const',
+    //       value: aval,
+    //       ctx: ctx,
+    //     };
+    //     return;
+    //   }
+    // }
 
     if (a_category === 'expr') {
       argAttrs[a_name] = aval;
@@ -502,7 +502,7 @@ export function parseAttributes(
       at[1] = e;
       return at;
     }),
-    translateAttrs: obj2arr(translateAttrs),
+    // translateAttrs: obj2arr(translateAttrs),
     listeners: obj2arr(listeners).map((lis) => {
       const lisResult = parseListener(_visitor, ...lis[1]);
       lisResult.code = lisResult.code

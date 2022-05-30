@@ -1,9 +1,9 @@
 import { Node } from 'acorn';
-import AcornWalk from 'acorn-walk';
-import { sharedOptions } from '../../options';
-import { prependTab } from '../../util';
+import { prependTab, SYMBOL_POSTFIX } from '../../util';
 import { TemplateVisitor } from './visitor';
 import { Position } from './common';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const AcornWalk = require('acorn-walk');
 
 export function logParseError(_visitor: TemplateVisitor, tokenPosition: Position, msg: string, type = 'Error') {
   let idx = -1;
@@ -12,7 +12,7 @@ export function logParseError(_visitor: TemplateVisitor, tokenPosition: Position
   }
   idx = idx + 1;
   const eidx = _visitor._source.indexOf('\n', idx);
-  _visitor._webpackLoaderContext.emitError(
+  _visitor._emitErrorFn(
     new Error(`${type} occur at line ${tokenPosition.line + _visitor._baseLinePosition - 1}, column ${
       tokenPosition.column
     }:
@@ -25,7 +25,7 @@ export function logParseError(_visitor: TemplateVisitor, tokenPosition: Position
 export function replaceTpl(str: string, ctx?: Record<string, string>) {
   return replaceTplStr(str, {
     ...ctx,
-    POSTFIX: sharedOptions.symbolPostfix,
+    POSTFIX: SYMBOL_POSTFIX,
   });
 }
 

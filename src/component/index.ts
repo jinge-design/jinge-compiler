@@ -1,73 +1,78 @@
-import path from 'path';
 import { Node, Parser } from 'acorn';
-import acornWalk from 'acorn-walk';
 import escodegen from 'escodegen';
-import { LoaderContext } from 'webpack';
+import { RawSource, ReplaceSource, SourceMapSource } from 'webpack-sources';
+import { RawSourceMap } from 'source-map';
+// import { LoaderContext } from 'webpack';
 import {
   BlockStatement,
-  CallExpression,
   ClassDeclaration,
+  ClassExpression,
   Expression,
   ExpressionStatement,
   FunctionExpression,
   Identifier,
-  ImportDeclaration,
+  // ImportDeclaration,
   MemberExpression,
   MethodDefinition,
-  PrivateIdentifier,
   Program,
-  Statement,
+  // Statement,
   ThisExpression,
   VariableDeclaration,
 } from 'estree';
-import { sharedOptions } from '../options';
-import { JingeTemplateParser } from '../template';
-import { prependTab, isString, isArray, arrayIsEqual, getJingeBase } from '../util';
-import { i18nManager } from '../i18n';
-import { componentBaseManager as baseManager } from './base';
-import { _n_vm, _n_wrap } from './helper';
 
-export * from './base';
+// import { TemplateParser } from '../template';
+import { prependTab, isString, isArray, arrayIsEqual, SYMBOL_POSTFIX } from '../util';
+// import { i18nManager } from '../i18n';
+import { _n_vm, _n_wrap } from './helper';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const AcornWalk = require('acorn-walk');
 
 export interface ComponentParseOptions {
   resourcePath: string;
-  webpackLoaderContext: LoaderContext<unknown>;
+  // webpackLoaderContext: LoaderContext<unknown>;
+  /**
+   * @internal
+   * 是否是用于构建 jinge 内核组件
+   */
+  _innerLib?: boolean;
 }
 
 export class ComponentParser {
-  static parse(content: string, sourceMap: unknown, options: ComponentParseOptions) {
+  static parse(content: string, sourceMap: RawSourceMap, options: ComponentParseOptions) {
     return new ComponentParser(options).parse(content, sourceMap);
   }
 
   resourcePath: string;
-  jingeBase: string;
-  webpackLoaderContext: LoaderContext<unknown>;
-  _localStore: { templates: Map<string, unknown> };
-  _constructorRanges: { start: number; end: number }[];
+  // jingeBase: string;
+  // webpackLoaderContext: LoaderContext<unknown>;
+  // _localStore: { templates: Map<string, unknown> };
+  // _constructorRanges: { start: number; end: number }[];
   _replaces: { start: number; end: number; code: string }[];
-  _needHandleI18NTranslate: boolean;
-  _tplGlobalImports: Set<string>;
-  _tplCodeOfImports: Set<string>;
+  // _needHandleI18NTranslate: boolean;
+  // _tplGlobalImports: Set<string>;
+  // _tplCodeOfImports: Set<string>;
+  _innerLib: boolean;
 
   constructor(options: ComponentParseOptions) {
     this.resourcePath = options.resourcePath;
-    this.jingeBase = getJingeBase(this.resourcePath);
-    this.webpackLoaderContext = options.webpackLoaderContext;
-    this._localStore = {
-      templates: new Map(),
-    };
-    if (!this.webpackLoaderContext) throw new Error('unimpossible?!');
+    this._innerLib = options._innerLib;
+    // this.jingeBase = getJingeBase(this.resourcePath);
+    // this.webpackLoaderContext = options.webpackLoaderContext;
+    // this._localStore = {
+    //   templates: new Map(),
+    // };
+    // if (!this.webpackLoaderContext) throw new Error('unimpossible?!');
 
-    this._constructorRanges = [];
+    // this._constructorRanges = [];
     this._replaces = null;
-    this._needHandleI18NTranslate = false;
+    // this._needHandleI18NTranslate = false;
 
-    this._tplGlobalImports = new Set();
-    this._tplCodeOfImports = new Set();
+    // this._tplGlobalImports = new Set();
+    // this._tplCodeOfImports = new Set();
   }
 
   _walkAcorn(node: { type: string }, visitors: Record<string, (...args: unknown[]) => void | boolean>) {
-    const baseVisitor = acornWalk.base;
+    const baseVisitor = AcornWalk.base;
     (function c(node, state?: unknown, override?: string) {
       const found = visitors[node.type] || (override ? visitors[override] : null);
       let stopVisit = false;
@@ -80,140 +85,137 @@ export class ComponentParser {
     })(node);
   }
 
-  _resolve(node: ImportDeclaration) {
-    return new Promise<string>((resolve, reject) => {
-      this.webpackLoaderContext.resolve(
-        this.webpackLoaderContext.context,
-        node.source.value as string,
-        (err, result) => {
-          if (err || !result) reject(err || new Error('resolve empty'));
-          else resolve(result);
-        },
-      );
-    });
-  }
+  // _resolve(node: ImportDeclaration) {
+  //   return new Promise<string>((resolve, reject) => {
+  //     this.webpackLoaderContext.resolve(
+  //       this.webpackLoaderContext.context,
+  //       node.source.value as string,
+  //       (err, result) => {
+  //         if (err || !result) reject(err || new Error('resolve empty'));
+  //         else resolve(result);
+  //       },
+  //     );
+  //   });
+  // }
 
-  async walkImport(node: ImportDeclaration) {
-    if (node.specifiers.length === 0) {
-      return false;
-    }
-    let source = null;
-    let testSource: string = node.source.value as string;
-    if (!/\.\w+$/.test(testSource)) {
-      source = await this._resolve(node);
-      testSource = source;
-    }
-    const _isHtml = /\.htm(?:l)?$/.test(testSource);
-    let needHandleComponent = false;
-    for (let i = 0; i < node.specifiers.length; i++) {
-      const spec = node.specifiers[i];
-      const type = spec.type;
-      let imported = '';
-      let local = '';
-      if (type === 'ImportDefaultSpecifier') {
-        // `import a from 'xx'` -> const a = xx;
-        imported = 'default';
-        local = spec.local.name;
-      } else if (type === 'ImportSpecifier') {
-        // `import { a as b } from 'xx' -> const b = xx.a;
-        imported = spec.imported.name;
-        local = spec.local.name;
-      }
+  // async walkImport(node: ImportDeclaration) {
+  //   if (node.specifiers.length === 0) {
+  //     return false;
+  //   }
+  //   let source = null;
+  //   let testSource: string = node.source.value as string;
+  //   if (!/\.\w+$/.test(testSource)) {
+  //     source = await this._resolve(node);
+  //     testSource = source;
+  //   }
+  //   const _isHtml = /\.htm(?:l)?$/.test(testSource);
+  //   let needHandleComponent = false;
+  //   for (let i = 0; i < node.specifiers.length; i++) {
+  //     const spec = node.specifiers[i];
+  //     const type = spec.type;
+  //     let imported = '';
+  //     let local = '';
+  //     if (type === 'ImportDefaultSpecifier') {
+  //       // `import a from 'xx'` -> const a = xx;
+  //       imported = 'default';
+  //       local = spec.local.name;
+  //     } else if (type === 'ImportSpecifier') {
+  //       // `import { a as b } from 'xx' -> const b = xx.a;
+  //       imported = spec.imported.name;
+  //       local = spec.local.name;
+  //     }
 
-      if (!imported) {
-        continue;
-      }
+  //     if (!imported) {
+  //       continue;
+  //     }
 
-      if (_isHtml) {
-        if (!source) {
-          source = await this._resolve(node);
-        }
-        if (_isHtml) {
-          this._localStore.templates.set(local, source);
-        }
-        return false;
-      }
+  //     if (_isHtml) {
+  //       if (!source) {
+  //         source = await this._resolve(node);
+  //       }
+  //       if (_isHtml) {
+  //         this._localStore.templates.set(local, source);
+  //       }
+  //       return false;
+  //     }
 
-      /**
-       * 如果使用了 _t 这个多语言编译辅助函数，则自动将函数的参数注册到多语言字典里并将
-       * 该函数调用 `_t(text, params)` 转换成 `i18n[I18N_GET_TEXT](key, params)`
-       *
-       * 但如果多语言脚本资源已经处理过了（i18nManager.written === true），说明是在
-       * 启用了 watch 的研发模式下，文件发生变化后重新编译，这种情况下，由于多方面的复杂
-       * 问题不好解决，暂时先简化为不做多语言的处理（事实上，研发模式下也不需要频繁切换多语言，
-       * 往往是在默认语言下将模块开发完成，然后更新其它语言包，再重新运行和测试其它语言）。
-       */
-      if (!i18nManager.written && imported === '_t') {
-        if (node.source.value === 'jinge' && local !== '_t') {
-          /**
-           * 为了简化逻辑，要求从 jinge 中引入 _t 这个 i18n 翻译用途的函数时，
-           * 不能指定其它本地变量别名。即，
-           * import {_t} from 'jinge'  // correct!
-           * import {_t as someAlias} from 'jinge'  // wrong!
-           */
-          throw new Error("_t is preserve i18n symbol, can't have local alias name. see https://todo.");
-        }
-        if (local === '_t' && node.source.value === 'jinge') {
-          // console.log('found _t', this.resourcePath);
-          this._needHandleI18NTranslate = true;
-        }
-      }
-      if (!needHandleComponent && imported in baseManager.componentBase) {
-        if (!source) {
-          // console.log(this.webpackLoaderContext.context, node.source.value);
-          source = await this._resolve(node);
-        }
-        if (baseManager.componentBase[imported].indexOf(source) >= 0) {
-          baseManager.componentBaseLocals.set(spec.local.name, true);
-          needHandleComponent = true;
-        }
-      }
-    }
-    return needHandleComponent;
-  }
+  //     /**
+  //      * 如果使用了 _t 这个多语言编译辅助函数，则自动将函数的参数注册到多语言字典里并将
+  //      * 该函数调用 `_t(text, params)` 转换成 `i18n[I18N_GET_TEXT](key, params)`
+  //      *
+  //      * 但如果多语言脚本资源已经处理过了（i18nManager.written === true），说明是在
+  //      * 启用了 watch 的研发模式下，文件发生变化后重新编译，这种情况下，由于多方面的复杂
+  //      * 问题不好解决，暂时先简化为不做多语言的处理（事实上，研发模式下也不需要频繁切换多语言，
+  //      * 往往是在默认语言下将模块开发完成，然后更新其它语言包，再重新运行和测试其它语言）。
+  //      */
+  //     // if (!i18nManager.written && imported === '_t') {
+  //     //   if (node.source.value === 'jinge' && local !== '_t') {
+  //     //     /**
+  //     //      * 为了简化逻辑，要求从 jinge 中引入 _t 这个 i18n 翻译用途的函数时，
+  //     //      * 不能指定其它本地变量别名。即，
+  //     //      * import {_t} from 'jinge'  // correct!
+  //     //      * import {_t as someAlias} from 'jinge'  // wrong!
+  //     //      */
+  //     //     throw new Error("_t is preserve i18n symbol, can't have local alias name. see https://todo.");
+  //     //   }
+  //     //   if (local === '_t' && node.source.value === 'jinge') {
+  //     //     // console.log('found _t', this.resourcePath);
+  //     //     this._needHandleI18NTranslate = true;
+  //     //   }
+  //     // }
+  //     // if (!needHandleComponent && imported in baseManager.componentBase) {
+  //     //   if (!source) {
+  //     //     // console.log(this.webpackLoaderContext.context, node.source.value);
+  //     //     source = await this._resolve(node);
+  //     //   }
+  //     //   if (baseManager.componentBase[imported].indexOf(source) >= 0) {
+  //     //     baseManager.componentBaseLocals.set(spec.local.name, true);
+  //     //     needHandleComponent = true;
+  //     //   }
+  //     // }
+  //   }
+  //   return needHandleComponent;
+  // }
 
-  walkClass(node: ClassDeclaration) {
-    const sc = node.superClass;
-    if (sc.type !== 'Identifier' || !baseManager.componentBaseLocals.has(sc.name)) {
-      /* TODO: need to support more cases? */
+  walkClass(node: ClassDeclaration | ClassExpression) {
+    debugger;
+    const sc = node.superClass as unknown as { type: string; name: string };
+    if (sc?.type !== 'Identifier' && sc?.name !== 'Component') {
+      /* TODO: 支持 Component 有别名的写法 */
       return;
     }
-
-    let tplNode: MethodDefinition;
-
+    let constructorNode: MethodDefinition;
     for (let i = 0; i < node.body.body.length; i++) {
       const mem = node.body.body[i];
       if (mem.type !== 'MethodDefinition') continue;
       if (mem.kind === 'constructor') {
-        this.walkConstructor(mem as unknown as Node & MethodDefinition, node.id.name);
-      } else if (mem.kind === 'get' && mem.static) {
-        if ((mem.key as PrivateIdentifier).name === 'template') {
-          // this.walkTemplate(mem);
-          tplNode = mem;
-        }
+        constructorNode = mem;
       }
     }
-
-    if (tplNode) {
-      this.walkTemplate(tplNode);
+    // 如果 class 上有 static template 或者 __render 函数，则认为是 jinge component。对于内部
+    if (constructorNode) {
+      this.walkConstructor(constructorNode as unknown as Node & MethodDefinition, node.id?.name || '-');
     }
+    // if (tplNode) {
+    //   this.walkTemplate(tplNode);
+    // }
   }
 
-  _addI18nImports() {
-    this._tplCodeOfImports.add(
-      `import { i18n as __i18n${sharedOptions.symbolPostfix} } from '${
-        this.jingeBase === 'jinge' ? 'jinge' : path.join(this.jingeBase, 'core')
-      }';`,
-    );
-  }
+  // _addI18nImports() {
+  //   this._tplCodeOfImports.add(
+  //     `import { i18n as __i18n${sharedOptions.symbolPostfix} } from '${
+  //       this.jingeBase === 'jinge' ? 'jinge' : path.join(this.jingeBase, 'core')
+  //     }';`,
+  //   );
+  // }
 
-  _addConstructorImports() {
-    this._tplCodeOfImports.add(
-      `import { $$ as __$$${sharedOptions.symbolPostfix} } from '${
-        this.jingeBase === 'jinge' ? 'jinge' : path.join(this.jingeBase, 'vm/common')
-      }';`,
-    );
-  }
+  // _addConstructorImports() {
+  //   this._tplCodeOfImports.add(
+  //     `import { $$ as __$$${sharedOptions.symbolPostfix} } from '${
+  //       this.jingeBase === 'jinge' ? 'jinge' : path.join(this.jingeBase, 'vm/common')
+  //     }';`,
+  //   );
+  // }
 
   _parse_mem_path(memExpr: MemberExpression, attrsName: string) {
     let paths: string[] = [];
@@ -275,20 +277,20 @@ export class ComponentParser {
   }
 
   walkConstructor(node: Node & MethodDefinition, ClassName: string) {
-    if (this._needHandleI18NTranslate) {
-      // 处理出现在组件的构造函数里的 _t 函数。
-      this.walkI18NTranslate(node, true);
-      this._constructorRanges.push({
-        start: node.start,
-        end: node.end,
-      });
-    }
+    // if (this._needHandleI18NTranslate) {
+    //   // 处理出现在组件的构造函数里的 _t 函数。
+    //   this.walkI18NTranslate(node, true);
+    //   this._constructorRanges.push({
+    //     start: node.start,
+    //     end: node.end,
+    //   });
+    // }
 
     const fn = node.value as unknown as { body: Node & BlockStatement } & FunctionExpression;
     const an = fn.params.length === 0 ? null : (fn.params[0] as Identifier).name;
     if (!an) throw new Error(`constructor of ${ClassName} must accept at least one argument.`);
     let foundSupper = false;
-    const vm = `__vm${sharedOptions.symbolPostfix}`;
+    const vm = `__vm${SYMBOL_POSTFIX}`;
     /** 将 this.xx 转成 __vm.xx */
     const replaceThis = (stmt: ExpressionStatement) => {
       this._walkAcorn(stmt, {
@@ -318,7 +320,7 @@ export class ComponentParser {
           }
           foundSupper = true;
           newBody.push(stmt);
-          newBody.push(_n_wrap(sharedOptions.symbolPostfix));
+          newBody.push(_n_wrap(SYMBOL_POSTFIX));
         } else {
           newBody.push(replaceThis(stmt));
         }
@@ -348,7 +350,7 @@ export class ComponentParser {
           },
         });
         if (props.length > 0) {
-          newBody.push(..._n_vm(i, replaceThis(stmt), an, props, sharedOptions.symbolPostfix));
+          newBody.push(..._n_vm(i, replaceThis(stmt), an, props, SYMBOL_POSTFIX));
         } else {
           newBody.push(replaceThis(stmt));
         }
@@ -366,7 +368,7 @@ export class ComponentParser {
       newCode = prependTab(newCode, false, node.loc.start.column);
       newCode = '{\n' + newCode;
     }
-    this._addConstructorImports();
+    // this._addConstructorImports();
     this._replaces.push({
       start: fn.body.start,
       end: fn.body.end,
@@ -374,111 +376,109 @@ export class ComponentParser {
     });
   }
 
-  walkTemplate(node: MethodDefinition) {
-    if (node.value.body.body.length === 0) throw new Error('static getter `template` must return.');
-    const st = node.value.body.body[0] as { argument: Node & Expression } & Statement;
-    if (st.type !== 'ReturnStatement') {
-      throw new Error('static getter `template` must return directly.');
-    }
-    const arg = st.argument;
-    let tpl = '';
-    if (arg.type === 'Identifier') {
-      if (!this._localStore.templates.has(arg.name)) {
-        throw new Error('static getter `template` must return variable imported on file topest level.');
-      }
-      return;
-    } else if (arg.type === 'Literal') {
-      tpl = arg.value as string;
-    } else if (arg.type === 'TemplateLiteral') {
-      if (arg.expressions.length > 0)
-        throw new Error('static getter `template` must not return template string with expression.');
-      tpl = arg.quasis[0].value.cooked;
-    } else {
-      throw new Error(`Type '${arg.type}' of return in static getter 'template' is not support.`);
-    }
-    const result = JingeTemplateParser._parse(tpl, {
-      baseLinePosition: arg.loc.start.line,
-      resourcePath: this.resourcePath,
-      webpackLoaderContext: this.webpackLoaderContext,
-      wrapCode: false,
-    });
+  // walkTemplate(node: MethodDefinition) {
+  // if (node.value.body.body.length === 0) throw new Error('static getter `template` must return.');
+  // const st = node.value.body.body[0] as { argument: Node & Expression } & Statement;
+  // if (st.type !== 'ReturnStatement') {
+  //   throw new Error('static getter `template` must return directly.');
+  // }
+  // const arg = st.argument;
+  // // let tpl = '';
+  // if (arg.type !== 'Identifier' || !this._localStore.templates.has(arg.name)) {
+  //   throw new Error('static getter `template` must return variable imported on file topest level.');
+  // }
+  // } else if (arg.type === 'Literal') {
+  //   tpl = arg.value as string;
+  // } else if (arg.type === 'TemplateLiteral') {
+  //   if (arg.expressions.length > 0)
+  //     throw new Error('static getter `template` must not return template string with expression.');
+  //   tpl = arg.quasis[0].value.cooked;
+  // } else {
+  //   throw new Error(`Type '${arg.type}' of return in static getter 'template' is not support.`);
+  // }
+  // const result = TemplateParser._parse(tpl, {
+  //   baseLinePosition: arg.loc.start.line,
+  //   resourcePath: this.resourcePath,
+  //   webpackLoaderContext: this.webpackLoaderContext,
+  //   wrapCode: false,
+  // });
 
-    result.globalImports.forEach((imp) => this._tplGlobalImports.add(imp));
-    result.aliasImports && this._tplCodeOfImports.add(result.aliasImports);
-    result.localImports && this._tplCodeOfImports.add(result.localImports);
-    result.i18nDeps && this._tplCodeOfImports.add(result.i18nDeps);
+  // result.globalImports.forEach((imp) => this._tplGlobalImports.add(imp));
+  // result.aliasImports && this._tplCodeOfImports.add(result.aliasImports);
+  // result.localImports && this._tplCodeOfImports.add(result.localImports);
+  // // result.i18nDeps && this._tplCodeOfImports.add(result.i18nDeps);
 
-    let code = result.renderFn;
-    if (st.loc.start.column > 0 && code.indexOf('\n') > 0) {
-      code = 'function(component) {\n' + prependTab(code.substring(code.indexOf('\n') + 1), false, st.loc.start.column);
-    }
+  // let code = result.renderFn;
+  // if (st.loc.start.column > 0 && code.indexOf('\n') > 0) {
+  //   code = 'function(component) {\n' + prependTab(code.substring(code.indexOf('\n') + 1), false, st.loc.start.column);
+  // }
 
-    this._replaces.push({
-      start: st.argument.start,
-      end: st.argument.end,
-      code,
-    });
-  }
+  // this._replaces.push({
+  //   start: st.argument.start,
+  //   end: st.argument.end,
+  //   code,
+  // });
+  // }
 
-  walkI18NTranslate(rootNode: Program | MethodDefinition, inConstructor: boolean) {
-    this._walkAcorn(rootNode, {
-      CallExpression: (node: Node & CallExpression) => {
-        if (node.callee.type === 'Identifier' && node.callee.name === '_t') {
-          /**
-           * inConstructor 为 false 说明不是从 this.walkConstructor 中进入到此处的逻辑，
-           * 这种情况下，不需要再处理出现在组件的构造函数里的 _t 函数，
-           * 因为之前在 this.walkConstructor 中已经处理过了。
-           */
-          if (
-            !inConstructor &&
-            this._constructorRanges.some((r) => {
-              return node.start <= r.end && node.end >= r.start;
-            })
-          ) {
-            return;
-          }
-          const args = node.arguments;
-          if (args.length === 0 || args.length > 3) {
-            throw new Error('_t require count of arguments to be 1 to 3.');
-          }
-          const text = args[0];
-          if (!text || text.type !== 'Literal' || typeof text.value !== 'string') {
-            throw new Error('_t require first argument to be literal string.');
-          }
-          this._addI18nImports();
-          node.callee = {
-            type: 'MemberExpression',
-            computed: false,
-            optional: false,
-            object: {
-              type: 'Identifier',
-              name: `__i18n${sharedOptions.symbolPostfix}`,
-            },
-            property: {
-              type: 'Identifier',
-              name: `__t`,
-            },
-          };
-          const key = i18nManager.registerToDict(text.value, this.resourcePath);
-          text.value = key;
-          /*
-           * 如果 _t 函数调用不是在组件的构造函数里，则需要将 _t 函数代码转换；
-           * 否则，只需要将 ast tree node 的数据修改就行，在 walkConstructor 里会整体替换。
-           */
-          if (!inConstructor) {
-            const code = escodegen.generate(node);
-            this._replaces.push({
-              start: node.start,
-              end: node.end,
-              code,
-            });
-          }
-        }
-      },
-    });
-  }
+  // walkI18NTranslate(rootNode: Program | MethodDefinition, inConstructor: boolean) {
+  //   this._walkAcorn(rootNode, {
+  //     CallExpression: (node: Node & CallExpression) => {
+  //       if (node.callee.type === 'Identifier' && node.callee.name === '_t') {
+  //         /**
+  //          * inConstructor 为 false 说明不是从 this.walkConstructor 中进入到此处的逻辑，
+  //          * 这种情况下，不需要再处理出现在组件的构造函数里的 _t 函数，
+  //          * 因为之前在 this.walkConstructor 中已经处理过了。
+  //          */
+  //         if (
+  //           !inConstructor &&
+  //           this._constructorRanges.some((r) => {
+  //             return node.start <= r.end && node.end >= r.start;
+  //           })
+  //         ) {
+  //           return;
+  //         }
+  //         const args = node.arguments;
+  //         if (args.length === 0 || args.length > 3) {
+  //           throw new Error('_t require count of arguments to be 1 to 3.');
+  //         }
+  //         const text = args[0];
+  //         if (!text || text.type !== 'Literal' || typeof text.value !== 'string') {
+  //           throw new Error('_t require first argument to be literal string.');
+  //         }
+  //         this._addI18nImports();
+  //         node.callee = {
+  //           type: 'MemberExpression',
+  //           computed: false,
+  //           optional: false,
+  //           object: {
+  //             type: 'Identifier',
+  //             name: `__i18n${sharedOptions.symbolPostfix}`,
+  //           },
+  //           property: {
+  //             type: 'Identifier',
+  //             name: `__t`,
+  //           },
+  //         };
+  //         const key = i18nManager.registerToDict(text.value, this.resourcePath);
+  //         text.value = key;
+  //         /*
+  //          * 如果 _t 函数调用不是在组件的构造函数里，则需要将 _t 函数代码转换；
+  //          * 否则，只需要将 ast tree node 的数据修改就行，在 walkConstructor 里会整体替换。
+  //          */
+  //         if (!inConstructor) {
+  //           const code = escodegen.generate(node);
+  //           this._replaces.push({
+  //             start: node.start,
+  //             end: node.end,
+  //             code,
+  //           });
+  //         }
+  //       }
+  //     },
+  //   });
+  // }
 
-  async parse(code: string, origSrcMap: unknown) {
+  async parse(code: string, origSrcMap: RawSourceMap) {
     // const comments: Comment[] = [];
     let tree;
     try {
@@ -493,31 +493,23 @@ export class ComponentParser {
       throw new Error(ex.message + ' @ ' + this.resourcePath);
     }
     // tree.comments = comments;
-    let needHandleComponent = false;
+    // let needHandleComponent = false;
     this._replaces = [];
-    for (let i = 0; i < tree.body.length; i++) {
-      const n = tree.body[i];
-      if (n.type === 'ImportDeclaration') {
-        if (await this.walkImport(n)) {
-          needHandleComponent = true;
-        }
-      }
-    }
-    if (needHandleComponent) {
-      this._walkAcorn(tree, {
-        ClassDeclaration: (node: ClassDeclaration) => {
-          if (node.superClass) {
-            this.walkClass(node);
-          }
-          return false;
-        },
-      });
-    }
+    this._walkAcorn(tree, {
+      ClassExpression: (node: ClassExpression) => {
+        this.walkClass(node);
+        return false;
+      },
+      ClassDeclaration: (node: ClassDeclaration) => {
+        this.walkClass(node);
+        return false;
+      },
+    });
 
-    if (this._needHandleI18NTranslate) {
-      // 处理出现在除了组件的构造函数外其它地方的 _t 函数
-      this.walkI18NTranslate(tree, false);
-    }
+    // if (this._needHandleI18NTranslate) {
+    //   // 处理出现在除了组件的构造函数外其它地方的 _t 函数
+    //   this.walkI18NTranslate(tree, false);
+    // }
     if (this._replaces.length === 0) {
       return {
         code,
@@ -525,25 +517,21 @@ export class ComponentParser {
       };
     }
 
-    this._replaces = this._replaces.sort((a, b) => (a.start > b.start ? 1 : -1));
-    let start = 0;
-    let output =
-      this._tplGlobalImports.size > 0 ? `import { ${[...this._tplGlobalImports].join(', ')} } from 'jinge';\n` : '';
-    output += [...this._tplCodeOfImports].join('');
+    const sms = origSrcMap ? new SourceMapSource(code, this.resourcePath, origSrcMap) : new RawSource(code);
+    const rs = new ReplaceSource(sms);
+    rs.replace(
+      0,
+      0,
+      `import { $$ as $$${SYMBOL_POSTFIX} } from '${this._innerLib ? '../vm/common' : 'jinge'}';\n` + code[0],
+    );
+
     for (let i = 0; i < this._replaces.length; i++) {
       const r = this._replaces[i];
-      if (r.start > start) {
-        output += code.substring(start, r.start);
-      }
-      output += r.code;
-      start = r.end;
-    }
-    if (start < code.length) {
-      output += code.substring(start);
+      rs.replace(r.start, r.end - 1, r.code);
     }
     return {
-      code: output,
-      map: origSrcMap,
+      code: rs.source(),
+      map: rs.map(),
     };
   }
 }

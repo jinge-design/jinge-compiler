@@ -1,28 +1,26 @@
 import path from 'path';
 import crypto from 'crypto';
 import escodegen from 'escodegen';
-import acorn from 'acorn';
 import HTMLTags from 'html-tags';
 import SVGTags from 'svg-tags';
 import { decode } from 'html-entities';
-import { LoaderContext } from 'webpack';
-import { ParserRuleContext, Token } from 'antlr4-build';
+import { ParserRuleContext } from 'antlr4-build';
 import { ImportDeclaration, Program } from 'estree';
-import { i18nManager } from '../../i18n';
-import { sharedOptions } from '../../options';
-import { prependTab, attrN, isSimpleProp } from '../../util';
 import { aliasManager } from '../../alias';
-import { parse } from '../helper';
 import TemplateParserVisitor from '../parser/TemplateParserVisitor';
 import TemplateParser from '../parser/TemplateParser';
-import { AttributeValueParser } from '../AttributeValueParser';
+import { SYMBOL_POSTFIX } from '../../util';
 import * as TPL from './tpl';
 import { logParseError, prependTab2Space, replaceTpl } from './helper';
 import { Parent, ParsedElement, Position, VM } from './common';
 import { parseComponentElement } from './parseComponentElement';
 import { parseHtmlElement } from './parseHtmlElement';
 import { parseExpr } from './parseExpr';
-import { parseAttributeValue } from './parseAttributeValue';
+// import { parseAttributeValue } from './parseAttributeValue';
+// import { parseTranslate } from './parseTranslate';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const acorn = require('acorn');
 
 let cachedImportPostfix = '';
 
@@ -33,8 +31,9 @@ export type VisitChildNodesCtx = ParserRuleContext & {
 export interface TemplateVisitorOptions {
   source: string;
   resourcePath: string;
-  webpackLoaderContext: LoaderContext<unknown>;
   baseLinePosition: number;
+  addDebugName: boolean;
+  emitErrorFn: (err: unknown) => void;
 }
 export class TemplateVisitor extends TemplateParserVisitor {
   _stack: {
@@ -44,14 +43,14 @@ export class TemplateVisitor extends TemplateParserVisitor {
   _underMode_T: boolean;
   _vms: VM[];
   _resourcePath: string;
-  _webpackLoaderContext: LoaderContext<unknown>;
+  _emitErrorFn: (err: unknown) => void;
   _source: string;
   _importPostfix: string;
   _baseLinePosition: number;
-  _isProdMode: boolean;
+  _addDebugName: boolean;
   _needHandleComment: boolean;
   _parent: Parent;
-  _i18nRenderDeps: { codes: string[]; keys: Map<string, boolean> };
+  // _i18nRenderDeps: { codes: string[]; keys: Map<string, boolean> };
   _imports: Record<string, string>;
   _aliasImports: Record<string, string[]>;
   _importOutputCodes: unknown[];
@@ -63,20 +62,19 @@ export class TemplateVisitor extends TemplateParserVisitor {
     this._vms = [];
     this._source = opts.source;
     this._resourcePath = opts.resourcePath;
-    this._webpackLoaderContext = opts.webpackLoaderContext;
+    this._emitErrorFn = opts.emitErrorFn;
+    this._addDebugName = opts.addDebugName;
     this._importPostfix =
       cachedImportPostfix ||
       (cachedImportPostfix =
-        '_' +
-        crypto.createHmac('sha256', 'import-postfix').update(sharedOptions.symbolPostfix).digest('hex').substr(0, 12));
+        '_' + crypto.createHmac('sha256', 'import-postfix').update(SYMBOL_POSTFIX).digest('hex').slice(0, 12));
     this._baseLinePosition = opts.baseLinePosition || 1;
-    this._isProdMode = sharedOptions.compress;
     this._imports = {};
     this._importOutputCodes = [];
-    this._i18nRenderDeps = {
-      codes: [],
-      keys: new Map(),
-    };
+    // this._i18nRenderDeps = {
+    //   codes: [],
+    //   keys: new Map(),
+    // };
     this._aliasImports = {};
     this._needHandleComment = true;
     this._parent = {
@@ -105,9 +103,9 @@ export class TemplateVisitor extends TemplateParserVisitor {
     this._parent = r.parent;
   }
 
-  _assert_arg_pass(tokenPosition, elements, Component) {
+  _assert_arg_pass(tokenPosition: Position, elements: ParsedElement[], Component: string) {
     let found = 0;
-    const args = {};
+    const args: Record<string, boolean> = {};
     elements.forEach((el) => {
       if (el.type === 'component' && el.sub === 'argument') {
         if (found < 0) {
@@ -164,7 +162,7 @@ ${body}
     const elements = (super.visitHtml(ctx) as ParsedElement[]).filter((el) => !!el);
     return {
       renderFn: this._gen_render(elements, 0),
-      i18nDeps: this._i18nRenderDeps.codes.join('\n'),
+      // i18nDeps: this._i18nRenderDeps.codes.join('\n'),
       aliasImports: aliasManager.getCode(this._aliasImports),
       imports: this._importOutputCodes.join('\n').trim(),
     };
@@ -202,8 +200,8 @@ ${body}
       } else {
         txt = txt.substring(2, txt.length - 1).trim(); // extract from '${}'
         if (!txt) return;
-        const result = replaceTpl(parseExpr.call(this, txt, cn).join('\n'), {
-          REL_COM: `component[$$${sharedOptions.symbolPostfix}]`,
+        const result = replaceTpl(parseExpr(this, txt, cn).join('\n'), {
+          REL_COM: `component[$$${SYMBOL_POSTFIX}]`,
           ROOT_INDEX: '0',
           RENDER_START: 'setText$POSTFIX$(el, ',
           RENDER_END: ');',
@@ -244,39 +242,40 @@ ${body}
     if (endT && endT.getText() !== etag) {
       this._throwParseError(endT.start, `close tag <${endT.getText()}> does not match open <${etag}>`);
     }
-    if (etag.startsWith('_') && etag !== '_t' && etag !== '_slot') {
+    if (etag.startsWith('_') /* && etag !== '_t' */ && etag !== '_slot') {
       this._throwParseError(
         ctx.start,
-        'html tag starts with "_" is compiler preserved tag name. Current version only support: "<_t>" and "<_slot>". see https://todo"',
+        'html tag starts with "_" is compiler preserved tag name. Current version only support: "<_slot>". see https://todo"',
       );
     }
 
-    if (etag === '_t') {
-      return this._parse_translate(ctx);
-    } else if (etag === '_slot') {
-      return parseComponentElement.call(this, etag, etag, ctx);
+    // if (etag === '_t') {
+    //   return parseTranslate(this, ctx);
+    // } else
+    if (etag === '_slot') {
+      return parseComponentElement(this, etag, etag, ctx);
     } else if (/^[a-z\d_-]+$/.test(etag)) {
       const componentTag = aliasManager.getComponentOfAlias(etag, this._aliasImports);
       if (componentTag) {
-        return parseComponentElement.call(this, etag, componentTag, ctx);
+        return parseComponentElement(this, etag, componentTag, ctx);
       }
       if (etag !== 'svg' && this._parent.isSVG && SVGTags.indexOf(etag) < 0) {
-        logParseError.call(this, ctx.start, `${etag} is not known svg tag.`);
+        logParseError(this, ctx.start, `${etag} is not known svg tag.`);
       }
       if (etag !== 'svg' && !this._parent.isSVG && (HTMLTags as string[]).indexOf(etag) < 0) {
-        logParseError.call(
+        logParseError(
           this,
           ctx.start,
           `'${etag}' is not known html tag, do you forgot to config component alias?`,
           'Warning',
         );
       }
-      return parseHtmlElement.call(this, etag, ctx);
+      return parseHtmlElement(this, etag, ctx);
     }
     if (!(etag in this._imports)) {
       this._throwParseError(ctx.start, `Component '${etag}' not found. Forgot to import it on the top?`);
     }
-    return parseComponentElement.call(this, etag, this._imports[etag], ctx);
+    return parseComponentElement(this, etag, this._imports[etag], ctx);
   }
 
   visitHtmlComment(ctx: ParserRuleContext) {
@@ -294,7 +293,7 @@ ${body}
         ecmaVersion: 2020,
       }) as unknown as Program;
     } catch (ex) {
-      this._webpackLoaderContext.emitError(
+      this._emitErrorFn(
         new Error(`Warning: keyword "import" is found in comment, but got error when tring to parse it as js code. see https://[todo]
  > ${ex.message}
  > ${this._resourcePath}`),

@@ -1,8 +1,7 @@
 import { generate } from 'escodegen';
 import { Node } from 'acorn';
 import { CallExpression, ConditionalExpression, Expression, Identifier, MemberExpression, Statement } from 'estree';
-import { isSimpleProp } from '../../util';
-import { sharedOptions } from '../../options';
+import { isSimpleProp, SYMBOL_POSTFIX } from '../../util';
 import { walkAcorn } from './helper';
 import { MememberPath, parseExprMemberNode } from './parseExprMemberNode';
 import { TemplateVisitor } from './visitor';
@@ -217,13 +216,13 @@ export function parseExprNode(
       const needWrapViewModel = expr.type === 'ObjectExpression' || expr.type === 'ArrayExpression';
       return [
         '',
-        `const fn_$ROOT_INDEX$ = () => {\n  $RENDER_START$${
-          needWrapViewModel ? `vm${sharedOptions.symbolPostfix}(` : ''
-        }${generate(expr)}${needWrapViewModel ? ')' : ''}$RENDER_END$\n};`,
+        `const fn_$ROOT_INDEX$ = () => {\n  $RENDER_START$${needWrapViewModel ? `vm${SYMBOL_POSTFIX}(` : ''}${generate(
+          expr,
+        )}${needWrapViewModel ? ')' : ''}$RENDER_END$\n};`,
         'fn_$ROOT_INDEX$();',
         '',
         `${watchPaths
-          .map((p) => `${p.vm}[$$${sharedOptions.symbolPostfix}].__watch(${p.n}, fn_$ROOT_INDEX$, $REL_COM$);`)
+          .map((p) => `${p.vm}[$$${SYMBOL_POSTFIX}].__watch(${p.n}, fn_$ROOT_INDEX$, $REL_COM$);`)
           .join('\n')}`,
       ];
     } else {
@@ -239,7 +238,7 @@ _notify_${parentLevelId}();
 _update_${parentLevelId}();
 }`,
         `${watchPaths
-          .map((p) => `${p.vm}[$$${sharedOptions.symbolPostfix}].__watch(${p.n}, _update_${levelId}, $REL_COM$);`)
+          .map((p) => `${p.vm}[$$${SYMBOL_POSTFIX}].__watch(${p.n}, _update_${levelId}, $REL_COM$);`)
           .join('\n')}`,
       ];
     }
@@ -301,13 +300,13 @@ _update_${levelId}();
 }
 function _notify_${lv_id}() {
 const _np = [${__p.join(', ')}];
-const _eq = _${lv_id}_p && arrayEqual${sharedOptions.symbolPostfix}(_${lv_id}_p, _np);
+const _eq = _${lv_id}_p && arrayEqual${SYMBOL_POSTFIX}(_${lv_id}_p, _np);
 if (_${lv_id}_p && !_eq) {
-  vm_${level}[$$${sharedOptions.symbolPostfix}].__unwatch(_${lv_id}_p, _update_${lv_id}, $REL_COM$);
+  vm_${level}[$$${SYMBOL_POSTFIX}].__unwatch(_${lv_id}_p, _update_${lv_id}, $REL_COM$);
 }
 if (!_${lv_id}_p || !_eq) {
   _${lv_id}_p = _np;
-  vm_${level}[$$${sharedOptions.symbolPostfix}].__watch(_${lv_id}_p, _update_${lv_id}, $REL_COM$);
+  vm_${level}[$$${SYMBOL_POSTFIX}].__watch(_${lv_id}_p, _update_${lv_id}, $REL_COM$);
 }
 }`);
       initCodes.push(`_calc_${lv_id}();`);
@@ -319,7 +318,7 @@ if (!_${lv_id}_p || !_eq) {
     if (levelPath.length === 1) {
       const needWrapViewModel = expr.type === 'ObjectExpression' || expr.type === 'ArrayExpression';
       calcCodes.push(`function _calc_${levelId}() {
-$RENDER_START$${needWrapViewModel ? `vm${sharedOptions.symbolPostfix}(` : ''}${generate(expr)}${
+$RENDER_START$${needWrapViewModel ? `vm${SYMBOL_POSTFIX}(` : ''}${generate(expr)}${
         needWrapViewModel ? ')' : ''
       }$RENDER_END$
 }`);
@@ -327,7 +326,7 @@ $RENDER_START$${needWrapViewModel ? `vm${sharedOptions.symbolPostfix}(` : ''}${g
       updateCodes.unshift(`function _update_${levelId}() { _calc_${levelId}(); }`);
       watchCodes.push(
         `${watchPaths
-          .map((p) => `${p.vm}[$$${sharedOptions.symbolPostfix}].__watch(${p.n}, _calc_${levelId}, $REL_COM$);`)
+          .map((p) => `${p.vm}[$$${SYMBOL_POSTFIX}].__watch(${p.n}, _calc_${levelId}, $REL_COM$);`)
           .join('\n')}`,
       );
     } else {
@@ -341,7 +340,7 @@ _notify_${parentLevelId}();
       initCodes.push(`_calc_${levelId}();`);
       watchCodes.push(
         `${watchPaths
-          .map((p) => `${p.vm}[$$${sharedOptions.symbolPostfix}].__watch(${p.n}, _update_${levelId}, $REL_COM$);`)
+          .map((p) => `${p.vm}[$$${SYMBOL_POSTFIX}].__watch(${p.n}, _update_${levelId}, $REL_COM$);`)
           .join('\n')}`,
       );
     }

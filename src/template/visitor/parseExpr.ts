@@ -1,8 +1,9 @@
-import acorn from 'acorn';
 import { ParserRuleContext } from 'antlr4-build';
 import { ExpressionStatement } from 'estree';
 import { parseExprNode } from './parseExprNode';
 import { TemplateVisitor } from './visitor';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const acorn = require('acorn');
 
 export function parseExpr(_visitor: TemplateVisitor, txt: string, ctx: ParserRuleContext) {
   // console.log(txt);

@@ -1,8 +1,9 @@
-import acorn, { Node } from 'acorn';
 import { generate } from 'escodegen';
 import { BlockStatement, CallExpression, Identifier, IfStatement } from 'estree';
 import { walkAcorn } from './helper';
 import { TemplateVisitor } from './visitor';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const acorn = require('acorn');
 
 export function parseListener(_visitor: TemplateVisitor, str: string, mode: string, tag: Record<string, boolean>) {
   const tree = acorn.Parser.parse(`function _() {\n ${str} \n}`, {
@@ -45,7 +46,7 @@ export function parseListener(_visitor: TemplateVisitor, str: string, mode: stri
     const level = vmVar ? vmVar.level : 0;
     node.name = `vm_${level}.${vmVar ? vmVar.reflect : varName}`;
   };
-  walkAcorn(block as unknown as Node, {
+  walkAcorn(block as unknown as acorn.Node, {
     Identifier: (node: Identifier) => {
       if (node.name === 'args') return false;
       if (mode === 'html' && node.name === '$event') {

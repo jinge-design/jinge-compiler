@@ -1,9 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 
-export function getSymbolPostfix() {
-  return '792732ac12612c8319900402';
-}
+export const SYMBOL_POSTFIX = '792732ac12612c8319900402';
 
 export function isString(v: unknown): v is string {
   return typeof v === 'string';
@@ -126,8 +124,8 @@ export function deepClone<T>(obj: T): T {
   }
 }
 
-const jingeRoot = path.dirname(require.resolve('jinge/lib/index.js'));
+// const jingeRoot = path.dirname(require.resolve('jinge/lib/index.js'));
 
-export function getJingeBase(resourcePath: string) {
-  return resourcePath.startsWith(jingeRoot) ? path.relative(path.dirname(resourcePath), jingeRoot) : 'jinge';
-}
+// export function getJingeBase(resourcePath: string) {
+//   return resourcePath.startsWith(jingeRoot) ? path.relative(path.dirname(resourcePath), jingeRoot) : 'jinge';
+// }

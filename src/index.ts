@@ -1,6 +1,8 @@
 import path from 'path';
 
-export { JingeWebpackI18NPlugin } from './plugin';
+export { TemplateParser, TemplateParserOptions } from './template/index';
+export { ComponentParser, ComponentParseOptions } from './component/index';
+
 export const JingeLoader = path.resolve(__dirname, './loader.js');
 /**
  * 用于快速配置 jinge-loader 的 rule，所有 .c.{ts,js,html} 结尾的文件，

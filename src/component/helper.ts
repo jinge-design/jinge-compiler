@@ -22,7 +22,7 @@ export function _n_wrap(postfix: string): VariableDeclaration {
             },
             property: {
               type: 'Identifier',
-              name: `__$$${postfix}`,
+              name: `$$${postfix}`,
             },
             computed: true,
           },
@@ -94,7 +94,7 @@ export function _n_vm(idx: number, stmt: unknown, an: string, props: (string | s
             },
             property: {
               type: 'Identifier',
-              name: `__$$${postfix}`,
+              name: `$$${postfix}`,
             },
           },
           property: {
