@@ -33,7 +33,6 @@ export function parseExpr(_visitor: TemplateVisitor, txt: string, ctx: ParserRul
     _visitor._throwParseError(ctx.start, 'expression grammar error.');
   }
   if (expr.body.length > 1 || expr.body[0].type !== 'ExpressionStatement') {
-    // console.log(ctx.start.line, _visitor._baseLinePosition);
     _visitor._throwParseError(ctx.start, 'expression only support single ExpressionStatement. see https://[todo].');
   }
   expr = expr.body[0].expression;

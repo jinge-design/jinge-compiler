@@ -6,7 +6,7 @@ import SVGTags from 'svg-tags';
 import { decode } from 'html-entities';
 import { ParserRuleContext } from 'antlr4-build';
 import { ImportDeclaration, Program } from 'estree';
-import { aliasManager } from '../../alias';
+import { aliasManager } from '../alias';
 import TemplateParserVisitor from '../parser/TemplateParserVisitor';
 import TemplateParser from '../parser/TemplateParser';
 import { SYMBOL_POSTFIX } from '../../util';
@@ -16,13 +16,9 @@ import { Parent, ParsedElement, Position, VM } from './common';
 import { parseComponentElement } from './parseComponentElement';
 import { parseHtmlElement } from './parseHtmlElement';
 import { parseExpr } from './parseExpr';
-// import { parseAttributeValue } from './parseAttributeValue';
-// import { parseTranslate } from './parseTranslate';
+import { Parser } from 'acorn';
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const acorn = require('acorn');
-
-let cachedImportPostfix = '';
+const IMPORT_POSTFIX = '792732ac12612c8319900801';
 
 export type VisitChildNodesCtx = ParserRuleContext & {
   htmlNode: () => ParserRuleContext[];
@@ -31,7 +27,6 @@ export type VisitChildNodesCtx = ParserRuleContext & {
 export interface TemplateVisitorOptions {
   source: string;
   resourcePath: string;
-  baseLinePosition: number;
   addDebugName: boolean;
   emitErrorFn: (err: unknown) => void;
 }
@@ -45,13 +40,13 @@ export class TemplateVisitor extends TemplateParserVisitor {
   _resourcePath: string;
   _emitErrorFn: (err: unknown) => void;
   _source: string;
-  _importPostfix: string;
-  _baseLinePosition: number;
   _addDebugName: boolean;
   _needHandleComment: boolean;
   _parent: Parent;
-  // _i18nRenderDeps: { codes: string[]; keys: Map<string, boolean> };
-  _imports: Record<string, string>;
+  _imports: {
+    components: Set<string>;
+    styles: Set<string>;
+  };
   _aliasImports: Record<string, string[]>;
   _importOutputCodes: unknown[];
 
@@ -64,12 +59,10 @@ export class TemplateVisitor extends TemplateParserVisitor {
     this._resourcePath = opts.resourcePath;
     this._emitErrorFn = opts.emitErrorFn;
     this._addDebugName = opts.addDebugName;
-    this._importPostfix =
-      cachedImportPostfix ||
-      (cachedImportPostfix =
-        '_' + crypto.createHmac('sha256', 'import-postfix').update(SYMBOL_POSTFIX).digest('hex').slice(0, 12));
-    this._baseLinePosition = opts.baseLinePosition || 1;
-    this._imports = {};
+    this._imports = {
+      components: new Set(),
+      styles: new Set(),
+    };
     this._importOutputCodes = [];
     // this._i18nRenderDeps = {
     //   codes: [],
@@ -272,10 +265,10 @@ ${body}
       }
       return parseHtmlElement(this, etag, ctx);
     }
-    if (!(etag in this._imports)) {
+    if (this._imports.components.has(etag)) {
       this._throwParseError(ctx.start, `Component '${etag}' not found. Forgot to import it on the top?`);
     }
-    return parseComponentElement(this, etag, this._imports[etag], ctx);
+    return parseComponentElement(this, etag, etag + IMPORT_POSTFIX , ctx);
   }
 
   visitHtmlComment(ctx: ParserRuleContext) {
@@ -287,7 +280,7 @@ ${body}
     if (!/(^|[\s;])import($|\s)/.test(code)) return;
     let tree;
     try {
-      tree = acorn.Parser.parse(code, {
+      tree = Parser.parse(code, {
         locations: true,
         sourceType: 'module',
         ecmaVersion: 2020,
@@ -306,7 +299,8 @@ ${body}
       for (let i = 0; i < node.specifiers.length; i++) {
         const spec = node.specifiers[i];
         const local = spec.local.name;
-        if (!/^[A-Z][a-zA-Z\d]*$/.test(local)) {
+        const isStyle = /\.(css|less|sass|scss)$/.test(local);
+        if (!/^[A-Z][a-zA-Z\d]*$/.test(local) && !isStyle) {
           this._throwParseError(
             {
               line: ctx.start.line + spec.loc.start.line - 1,
@@ -315,30 +309,20 @@ ${body}
             'Imported component name must match /^[A-Z][a-zA-Z\\d]+$/. see https://[todo]',
           );
         }
-        if (local in this._imports) {
+        if (this._imports.components.has(local) || this._imports.styles.has(local)) {
           this._throwParseError(
             {
               line: ctx.start.line + spec.loc.start.line - 1,
               column: spec.loc.start.column,
             },
-            'Dulplicate imported component name: ' + local,
+            'Dulplicate imported : ' + local,
           );
         }
-
-        let src = node.source.value as string;
-        if (src === '.') {
-          this._imports[local] = local;
-          // skip import XX from '.', which means Component used is in same file.
-          continue;
-        }
-        if (src.startsWith('.')) {
-          src = path.resolve(path.dirname(this._resourcePath), src);
-        }
-        const hash = crypto.createHash('md5');
-        this._imports[local] = local + '_' + hash.update(src).digest('hex').slice(0, 12) + this._importPostfix;
+        const imps = isStyle ? this._imports.styles : this._imports.components;
+        imps.add(local);
         spec.local = {
           type: 'Identifier',
-          name: this._imports[local],
+          name: local + IMPORT_POSTFIX,
         };
         specifiers.push(spec);
       }

@@ -123,9 +123,3 @@ export function deepClone<T>(obj: T): T {
     return obj;
   }
 }
-
-// const jingeRoot = path.dirname(require.resolve('jinge/lib/index.js'));
-
-// export function getJingeBase(resourcePath: string) {
-//   return resourcePath.startsWith(jingeRoot) ? path.relative(path.dirname(resourcePath), jingeRoot) : 'jinge';
-// }

@@ -144,10 +144,6 @@ function convert(nodeExpr: Expression, root: Identifier, props: MememberPath[], 
 
   replaceExpr(nodeExpr as CallExpression, root, props);
 
-  if (varName.startsWith('_')) {
-    // do not need watch private property.
-    return;
-  }
   if (vmVar) {
     props[0].value = vmVar.reflect;
   }
@@ -183,6 +179,9 @@ export function parseExprNode(
       );
     },
     Identifier: (node: Identifier) => {
+      if (_visitor._imports.styles.has(node.name)) {
+        return false;
+      }
       convert(
         node,
         node,
@@ -198,6 +197,9 @@ export function parseExprNode(
       return false;
     },
     MemberExpression: (node: MemberExpression) => {
+      if (_visitor._imports.styles.has((node.object as Identifier).name)) {
+        return false;
+      }
       const mn = parseExprMemberNode(_visitor, node, info.startLine);
       if (mn.computed < 1) {
         convert(mn.memExpr, mn.root, mn.paths, _visitor._vms, watchPaths);

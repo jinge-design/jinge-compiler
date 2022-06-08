@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 // import { sharedOptions } from './options';
-import { SYMBOL_POSTFIX, isArray, isObject } from './util';
+import { SYMBOL_POSTFIX, isArray, isObject } from '../util';
 
 export type ComponentAlias = Record<string, Record<string, string | string[]>>;
 
@@ -52,6 +52,10 @@ export class ComponentAliasManager {
   }
 
   initialize(componentAlias: ComponentAlias) {
+    if (this.aliasPostfix) {
+      // already initialized
+      return;
+    }
     this.aliasPostfix =
       '_' + crypto.createHmac('sha256', 'component-alias-postfix').update(SYMBOL_POSTFIX).digest('hex').slice(0, 12);
     if (Array.isArray(componentAlias)) {

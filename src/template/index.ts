@@ -7,10 +7,8 @@ import { replaceTplStr } from './visitor/helper';
 
 export interface TemplateParserOptions {
   resourcePath: string;
-  baseLinePosition?: number;
   emitErrorFn: (err: unknown) => void;
   addDebugName: boolean;
-  wrapCode?: boolean;
 }
 
 export class TemplateParser {
@@ -24,29 +22,20 @@ export class TemplateParser {
     const imports = [
       ...new Set(
         [
-          ...result.renderFn.matchAll(depRegex) /* , ...(result.i18nDeps ? result.i18nDeps.matchAll(depRegex) : []) */,
+          ...result.renderFn.matchAll(depRegex)
         ].map((m) => m[1]),
       ),
     ].map((d) => `${d} as ${d}${SYMBOL_POSTFIX}`);
-    return options.wrapCode !== false
-      ? {
-          code:
-            `import {  ${imports.join(', ')} } from 'jinge';` +
-            cl(result.aliasImports) +
-            cl(result.imports) +
-            // cl(result.i18nDeps) +
-            `\nexport default ${result.renderFn}`,
-        }
-      : {
-          globalImports: imports,
-          // i18nDeps: result.i18nDeps,
-          aliasImports: result.aliasImports,
-          localImports: result.imports,
-          renderFn: result.renderFn,
-        };
+    return {
+      code:
+        `import {  ${imports.join(', ')} } from 'jinge';` +
+        cl(result.aliasImports) +
+        cl(result.imports) +
+        `\nexport default ${result.renderFn}`,
+    }
   }
 
-  static async parse(content: string, sourceMap: unknown, options: TemplateParserOptions) {
+  static async parse(content: string, options: TemplateParserOptions) {
     return new Promise((resolve, reject) => {
       try {
         resolve(TemplateParser._parse(content, options));
@@ -57,13 +46,11 @@ export class TemplateParser {
   }
 
   resourcePath: string;
-  baseLinePosition: number;
   emitErrorFn: (err: unknown) => void;
   addDebugName: boolean;
 
   constructor(options: TemplateParserOptions) {
     this.resourcePath = options.resourcePath;
-    this.baseLinePosition = options.baseLinePosition || 1;
     this.emitErrorFn = options.emitErrorFn;
     this.addDebugName = options.addDebugName;
   }
@@ -92,7 +79,6 @@ export class TemplateParser {
     const visitor = new TemplateVisitor({
       source: source,
       emitErrorFn: this.emitErrorFn,
-      baseLinePosition: this.baseLinePosition,
       resourcePath: this.resourcePath,
       addDebugName: this.addDebugName,
     });
@@ -118,7 +104,7 @@ export class TemplateParser {
     idx = idx + 1;
     const eidx = source.indexOf('\n', idx);
     this.emitErrorFn(
-      new Error(`Error occur at line ${tokenPosition.line + this.baseLinePosition - 1}, column ${tokenPosition.column}:
+      new Error(`Error occur at line ${tokenPosition.line}, column ${tokenPosition.column}:
 > ${source.substring(idx, eidx > idx ? eidx : source.length)}
 > ${this.resourcePath}
 > ${msg}`),

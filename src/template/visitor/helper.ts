@@ -13,7 +13,7 @@ export function logParseError(_visitor: TemplateVisitor, tokenPosition: Position
   idx = idx + 1;
   const eidx = _visitor._source.indexOf('\n', idx);
   _visitor._emitErrorFn(
-    new Error(`${type} occur at line ${tokenPosition.line + _visitor._baseLinePosition - 1}, column ${
+    new Error(`${type} occur at line ${tokenPosition.line}, column ${
       tokenPosition.column
     }:
 > ${_visitor._source.substring(idx, eidx > idx ? eidx : _visitor._source.length)}

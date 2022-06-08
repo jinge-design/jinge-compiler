@@ -11,7 +11,7 @@ execSync(`java -jar ${jar} -Dlanguage=JavaScript -no-listener -visitor *.g4`, {
 });
 fs.readdirSync(cwd).forEach((file) => {
   if (!file.endsWith('.js')) return;
-  const cnt = fs.readFileSync(path.join(cwd, file), 'utf-8').replace(/import\s+(?:\w+)\s+from\s+'antlr4'/g, (m0) => {
+  const cnt = fs.readFileSync(path.join(cwd, file), 'utf-8').replace(/import\s+(?:\w+)\s+from\s+['"]antlr4['"]/g, (m0) => {
     return m0.replace("'antlr4'", "'antlr4-build'");
   });
   fs.writeFileSync(path.join(cwd, file), cnt);
