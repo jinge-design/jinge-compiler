@@ -1,26 +1,25 @@
 import { Node, Parser, Comment } from 'acorn';
-import escodegen from 'escodegen';
-import { RawSource, ReplaceSource, SourceMapSource } from 'webpack-sources';
 import { RawSourceMap } from 'source-map';
 import {
   BlockStatement,
   ClassDeclaration,
   ClassExpression,
   Expression,
-  ExpressionStatement,
   FunctionExpression,
   Identifier,
   MemberExpression,
   MethodDefinition,
   Program,
+  Statement,
   ThisExpression,
-  VariableDeclaration,
 } from 'estree';
 
-import { prependTab, isString, isArray, arrayIsEqual, SYMBOL_POSTFIX } from '../util';
-import { _n_vm, _n_wrap } from './helper';
+import { isString, isArray, arrayIsEqual, SYMBOL_POSTFIX } from '../util';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const AcornWalk = require('acorn-walk');
+
+/** 取 symbol 的前 4 位 "_b3e"，替换 this 关键字，保证不影响 sourcemap。有潜在的风险是代码里碰巧也声明了 _b3e 这个变量。 */
+const VM_THIS = SYMBOL_POSTFIX.slice(0, 4);
 
 export interface ComponentParseOptions {
   resourcePath: string;
@@ -38,14 +37,14 @@ export class ComponentParser {
   }
 
   resourcePath: string;
-
-  _replaces: { start: number; end: number; code: string }[];
+  source: string;
+  _inserts: Map<number, string>;
   _innerLib: boolean;
 
   constructor(options: ComponentParseOptions) {
     this.resourcePath = options.resourcePath;
     this._innerLib = options._innerLib;
-    this._replaces = null;
+    this._inserts = new Map();
   }
 
   _walkAcorn(node: { type: string }, visitors: Record<string, (...args: unknown[]) => void | boolean>) {
@@ -146,39 +145,50 @@ export class ComponentParser {
     const an = fn.params.length === 0 ? null : (fn.params[0] as Identifier).name;
     if (!an) throw new Error(`constructor of ${ClassName} must accept at least one argument.`);
     let foundSupper = false;
-    const vm = `__vm${SYMBOL_POSTFIX}`;
-    /** 将 this.xx 转成 __vm.xx */
-    const replaceThis = (stmt: ExpressionStatement) => {
+    /** 将 this.xx 转成 vmThis.xx */
+    const replaceThis = (stmt: Statement) => {
       this._walkAcorn(stmt, {
-        ThisExpression: (te: ThisExpression) => {
-          const ts = te as unknown as Identifier;
-          ts.type = 'Identifier';
-          ts.name = vm;
+        ThisExpression: (te: ThisExpression & Node) => {
+          let code = this.source;
+          code = code.substring(0, te.start) + VM_THIS + code.substring(te.end);
+          this.source = code;
           return false;
         },
       });
       return stmt;
     };
-    const newBody: (ExpressionStatement | VariableDeclaration)[] = [];
-    fn.body.body.forEach((stmt, i) => {
+    const allStmts = fn.body.body as (Statement & Node)[];
+    allStmts.forEach((stmt, stmtIdx) => {
       if (stmt.type === 'ReturnStatement') {
         throw new Error(`constructor of '${ClassName}' can't have return statement.`);
       }
       if (stmt.type !== 'ExpressionStatement') {
-        newBody.push(replaceThis(stmt as unknown as ExpressionStatement));
+        replaceThis(stmt);
         return;
       }
-      const expr = stmt.expression;
+      const expr = stmt.expression as Expression & Node;
       if (expr.type === 'CallExpression') {
         if (expr.callee.type === 'Super') {
           if (expr.arguments.length === 0 || (expr.arguments[0] as Identifier).name !== an) {
             throw new Error(`constructor of ${ClassName} must pass first argument '${an}' to super-class`);
           }
           foundSupper = true;
-          newBody.push(stmt);
-          newBody.push(_n_wrap(SYMBOL_POSTFIX));
+          /**
+           * 在 super(); 后面添加 const VM_THIS = this[$$].proxy 代码，定义 VM_THIS 变量。接下来的转换会把 this. 替换为 VM_THIS.
+           * 为了保证不影响 super(); 后续代码的 sourcemap 映射，要求 super(); 这行代码独占一行，前后都只能是空格。
+           */
+          const nextStmt = allStmts.length - 1 === stmtIdx ? null : allStmts[stmtIdx + 1];
+          if (nextStmt && nextStmt.loc.start.line === stmt.loc.end.line) {
+            // super(); 调用必须独占一行。
+            throw new Error('super call expression must ends with spaces.');
+          }
+          // stmt.end === expr.end 说明 super() 调用后面没有加分号
+          const code = `${stmt.end === expr.end ? ';' : ''}const ${VM_THIS} = this[$$${SYMBOL_POSTFIX}].proxy;`;
+          if (this._inserts.has(stmt.end)) debugger;
+          // console.log(stmt.end, code);
+          this._inserts.set(stmt.end, code);
         } else {
-          newBody.push(replaceThis(stmt));
+          replaceThis(stmt);
         }
       } else if (expr.type === 'AssignmentExpression') {
         const exprLeft = expr.left;
@@ -189,7 +199,7 @@ export class ComponentParser {
           exprLeft.property.name.startsWith('_') ||
           exprLeft.computed
         ) {
-          newBody.push(replaceThis(stmt));
+          replaceThis(stmt);
           return;
         }
         if (!foundSupper) throw new Error("can't use 'this' before call super().");
@@ -206,40 +216,64 @@ export class ComponentParser {
           },
         });
         if (props.length > 0) {
-          newBody.push(..._n_vm(i, replaceThis(stmt), an, props, SYMBOL_POSTFIX));
+          /**
+           * 对于 this.xx = attrs.xx 这样的代码，需要转换为 VM_THIS.xx = attrs.xx，同时还要对 attrs 进行监听以响应外部传参变更，
+           * 也就是要在代码后面添加 attrs[$$].__watch('xx', fn) 的代码。为了不影响 sourcemap，采用一个很取巧的方式。
+           *
+           * 比如 this.xx = attrs.xx，我们转成 const fn_ = () => { this.xx = attrs.xx; }; fn_(); attrs[$$].__watch('xx', fn_);
+           * 但把 const fn_ = () => { 这一段放在上一行的末尾，从而保持 this.xx = attrs.xx; 这行和原始代码的行列都对齐。
+           */
+
+          replaceThis(stmt);
+          const preStmt = allStmts[stmtIdx - 1];
+          if (!preStmt) throw new Error('miss super call');
+          const nextStmt = allStmts.length - 1 === stmtIdx ? null : allStmts[stmtIdx + 1];
+          if (
+            preStmt.loc.end.line === stmt.loc.start.line ||
+            (nextStmt && stmt.loc.end.line === nextStmt.loc.start.line)
+          ) {
+            // 要求 this.xx = attrs.xx 的赋值语句的前后都是空格，独占一行。
+            throw new Error('this assign expression line must starts and ends with spaces.');
+          }
+          let fnCode = `const f${stmtIdx}${SYMBOL_POSTFIX} = () => {`;
+
+          if (this._inserts.has(preStmt.end)) {
+            // 如果目标的插入位置已经有数据了，则把新插入的放在原来的数据后面。
+            fnCode = this._inserts.get(preStmt.end) + fnCode;
+          }
+          this._inserts.set(preStmt.end, fnCode);
+
+          const code =
+            stmt.end === expr.end
+              ? ';'
+              : '' +
+                ' }; ' + // 不要漏了 const fn_ = () => { 这个函数的结尾大括号
+                `f${stmtIdx}${SYMBOL_POSTFIX}(); ` + // 立即执行一次赋值函数
+                `${props
+                  .map(
+                    (prop) =>
+                      `${an}[$$${SYMBOL_POSTFIX}].__watch(${JSON.stringify(prop)}, f${stmtIdx}${SYMBOL_POSTFIX});`, // 监控到变化时重新执行赋值函数
+                  )
+                  .join('')}`;
+          this._inserts.set(stmt.end, code);
         } else {
-          newBody.push(replaceThis(stmt));
+          replaceThis(stmt);
         }
       } else {
-        newBody.push(replaceThis(stmt));
+        replaceThis(stmt);
       }
-    });
-    fn.body.body = newBody;
-    let newCode = escodegen.generate(fn.body, {
-      indent: ''.padStart(2, ' '),
-    });
-    if (node.loc.start.column > 0) {
-      const i = newCode.indexOf('\n');
-      newCode = newCode.substring(i + 1);
-      newCode = prependTab(newCode, false, node.loc.start.column);
-      newCode = '{\n' + newCode;
-    }
-
-    this._replaces.push({
-      start: fn.body.start,
-      end: fn.body.end,
-      code: newCode,
     });
   }
 
   async parse(code: string, origSrcMap: RawSourceMap) {
+    this.source = code;
     const comments: Comment[] = [];
     let tree;
     try {
       tree = Parser.parse(code, {
         ranges: true,
         locations: true,
-        ecmaVersion: 2020,
+        ecmaVersion: 11,
         sourceType: 'module',
         onComment: comments,
       }) as unknown as Program;
@@ -247,7 +281,6 @@ export class ComponentParser {
       throw new Error(ex.message + ' @ ' + this.resourcePath);
     }
 
-    this._replaces = [];
     this._walkAcorn(tree, {
       ClassExpression: (node: ClassExpression) => {
         this.walkClass(node);
@@ -259,40 +292,45 @@ export class ComponentParser {
       },
     });
 
-    if (this._replaces.length === 0) {
-      return {
-        code,
-        map: origSrcMap,
-        ast: {
-          webpackAST: {
-            ...tree,
-            comments,
-          },
-        },
-      };
+    if (this._inserts.size > 0) {
+      let output = '';
+      let idx = 0;
+      Array.from(this._inserts.keys())
+        .sort((a, b) => (a > b ? 1 : a < b ? -1 : 0))
+        .forEach((pos) => {
+          if (pos > idx) {
+            output += this.source.substring(idx, pos);
+          }
+          output += this._inserts.get(pos);
+          idx = pos;
+        });
+      if (idx < this.source.length) {
+        output += this.source.substring(idx);
+      }
+      this.source = output;
     }
 
-    const sms = origSrcMap ? new SourceMapSource(code, this.resourcePath, origSrcMap) : new RawSource(code);
-    const rs = new ReplaceSource(sms);
-    rs.replace(
-      0,
-      0,
-      `import { $$ as $$${SYMBOL_POSTFIX} } from '${this._innerLib ? '../vm/common' : 'jinge'}';\n` + code[0],
-    );
+    if (this.source !== code) {
+      // 在文件头部插入依赖。注意不要插入 \n，保证不影响后续的行数。
+      this.source =
+        `import { $$ as $$${SYMBOL_POSTFIX} } from '${this._innerLib ? '../vm/common' : 'jinge'}';` + this.source;
 
-    for (let i = 0; i < this._replaces.length; i++) {
-      const r = this._replaces[i];
-      rs.replace(r.start, r.end - 1, r.code);
+      // console.log(this.source);
     }
+
     return {
-      code: rs.source(),
-      map: rs.map(),
-      ast: {
-        webpackAST: {
-          ...tree,
-          comments,
-        },
-      },
+      code: this.source,
+      map: origSrcMap,
+      ast:
+        // 如果没有对文件进行任何处理，可以直接返回 ast 加速。如果有处理，则 ast 中代码的位置很难高效调整，不返回 ast。
+        this.source === code
+          ? {
+              webpackAST: {
+                ...tree,
+                comments,
+              },
+            }
+          : undefined,
     };
   }
 }

@@ -1,6 +1,5 @@
 import crypto from 'crypto';
-// import { sharedOptions } from './options';
-import { SYMBOL_POSTFIX, isArray, isObject } from '../util';
+import { ALIAS_POSTFIX, isArray, isObject } from '../util';
 
 export type ComponentAlias = Record<string, Record<string, string | string[]>>;
 
@@ -18,12 +17,12 @@ function mergeAlias(src: ComponentAlias, dst: ComponentAlias) {
 }
 
 export class ComponentAliasManager {
-  aliasPostfix: string;
+  #inited: boolean;
   alias: Record<string, [string, string]>;
   localMap: Record<string, Record<string, string>>;
 
   constructor() {
-    this.aliasPostfix = '';
+    this.#inited = false;
     this.alias = {};
     this.localMap = {};
   }
@@ -52,19 +51,17 @@ export class ComponentAliasManager {
   }
 
   initialize(componentAlias: ComponentAlias) {
-    if (this.aliasPostfix) {
+    if (this.#inited) {
       // already initialized
       return;
     }
-    this.aliasPostfix =
-      '_' + crypto.createHmac('sha256', 'component-alias-postfix').update(SYMBOL_POSTFIX).digest('hex').slice(0, 12);
+    this.#inited = true;
     if (Array.isArray(componentAlias)) {
       componentAlias = Object.assign({}, ...componentAlias);
     }
     componentAlias = mergeAlias(componentAlias || {}, {
       jinge: {
         LogComponent: 'log',
-        // I18nComponent: 'i18n',
         IfComponent: 'if',
         ForComponent: 'for',
         SwitchComponent: 'switch',
@@ -83,13 +80,14 @@ export class ComponentAliasManager {
         throw new Error('component base source must be absolute path or package under node_modules');
       }
       const hash = crypto.createHash('md5');
-      const postfix = '_' + hash.update(source).digest('hex').slice(0, 12) + this.aliasPostfix;
+      const postfix = ALIAS_POSTFIX + '_' + hash.update(source).digest('hex').slice(0, 12);
       Object.keys(m).map((c, i) => {
         if (!(c in this.localMap[source])) {
           this.localMap[source][c] = (c === 'default' ? 'Component_default_' + i : c) + postfix;
         }
         const as = isArray(m[c]) ? (m[c] as string[]) : [m[c] as string];
         as.forEach((a) => {
+          if (a in this.alias) throw new Error('duplicated component alias: ' + a);
           this.alias[a] = [c, source];
         });
       });

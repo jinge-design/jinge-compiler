@@ -1,7 +1,7 @@
 export interface ParsedElement {
-  type: 'html' | 'component';
-  sub?: 'argument' | 'normal';
-  argPass?: 'default';
+  type: 'html' | 'component' | 'text';
+  sub?: 'argument' | 'normal' | 'parameter';
+  argPass?: 'default' | string;
   value: string;
 }
 export interface Position {

@@ -1,9 +1,9 @@
+import { parse } from '@jingeweb/html5parser';
 import { SYMBOL_POSTFIX } from '../util';
-import { parse, ParseErr } from './helper';
-import { TemplateVisitor } from './visitor/visitor';
-
-import * as TPL from './visitor/tpl';
+import { aliasManager } from './alias';
+import { TemplateVisitor } from './visitor';
 import { replaceTplStr } from './visitor/helper';
+import { EMPTY, ERROR } from './visitor/tpl';
 
 export interface TemplateParserOptions {
   resourcePath: string;
@@ -12,6 +12,7 @@ export interface TemplateParserOptions {
 }
 
 export class TemplateParser {
+  static aliasManager = aliasManager;
   static _parse(content: string, options: TemplateParserOptions) {
     function cl(s: string) {
       return s ? '\n' + s : '';
@@ -19,24 +20,20 @@ export class TemplateParser {
     const tplParser = new TemplateParser(options);
     const result = tplParser.parse(content);
     const depRegex = new RegExp(`([\\w$_][\\w\\d$_]+)${SYMBOL_POSTFIX}\\b`, 'g');
-    const imports = [
-      ...new Set(
-        [
-          ...result.renderFn.matchAll(depRegex)
-        ].map((m) => m[1]),
-      ),
-    ].map((d) => `${d} as ${d}${SYMBOL_POSTFIX}`);
+    const imports = [...new Set([...result.renderFn.matchAll(depRegex)].map((m) => m[1]))].map(
+      (d) => `${d} as ${d}${SYMBOL_POSTFIX}`,
+    );
     return {
       code:
         `import {  ${imports.join(', ')} } from 'jinge';` +
         cl(result.aliasImports) +
         cl(result.imports) +
         `\nexport default ${result.renderFn}`,
-    }
+    };
   }
 
   static async parse(content: string, options: TemplateParserOptions) {
-    return new Promise((resolve, reject) => {
+    return new Promise<{ code: string }>((resolve, reject) => {
       try {
         resolve(TemplateParser._parse(content, options));
       } catch (err) {
@@ -60,54 +57,31 @@ export class TemplateParser {
       return {
         aliasImports: '',
         imports: '',
-        renderFn: replaceTplStr(TPL.EMPTY, {
+        renderFn: replaceTplStr(EMPTY, {
           POSTFIX: SYMBOL_POSTFIX,
         }),
       };
     }
-    const [meetErr, tree] = parse(source);
-    if (meetErr) {
-      this._logParseError(source, meetErr, 'syntax of template is error.');
-      return {
-        aliasImports: '',
-        imports: '',
-        renderFn: replaceTplStr(TPL.ERROR, {
-          POSTFIX: SYMBOL_POSTFIX,
-        }),
-      };
-    }
+    const inodes = parse(source, {
+      setAttributeMap: false,
+    });
     const visitor = new TemplateVisitor({
-      source: source,
+      source,
       emitErrorFn: this.emitErrorFn,
       resourcePath: this.resourcePath,
       addDebugName: this.addDebugName,
     });
     try {
-      return visitor.visit(tree);
+      return visitor.visitHtml(inodes);
     } catch (ex) {
       this.emitErrorFn(ex);
       return {
         aliasImports: '',
         imports: '',
-        renderFn: replaceTplStr(TPL.ERROR, {
+        renderFn: replaceTplStr(ERROR, {
           POSTFIX: SYMBOL_POSTFIX,
         }),
       };
     }
-  }
-
-  _logParseError(source: string, tokenPosition: ParseErr, msg: string) {
-    let idx = -1;
-    for (let i = 0; i < tokenPosition.line - 1; i++) {
-      idx = source.indexOf('\n', idx + 1);
-    }
-    idx = idx + 1;
-    const eidx = source.indexOf('\n', idx);
-    this.emitErrorFn(
-      new Error(`Error occur at line ${tokenPosition.line}, column ${tokenPosition.column}:
-> ${source.substring(idx, eidx > idx ? eidx : source.length)}
-> ${this.resourcePath}
-> ${msg}`),
-    );
   }
 }

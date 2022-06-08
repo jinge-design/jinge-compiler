@@ -1,8 +1,8 @@
-import { ParserRuleContext } from 'antlr4-build';
+import { ITag } from '@jingeweb/html5parser';
 import { convertAttributeName, prependTab, SYMBOL_POSTFIX } from '../../util';
 import { logParseError, prependTab2Space, replaceTpl } from './helper';
-import { parseAttributes, ParseAttributesCtx } from './parseAttributes';
-import { TemplateVisitor, VisitChildNodesCtx } from './visitor';
+import { parseAttributes } from './parseAttributes';
+import { TemplateVisitor } from './visitor';
 import * as TPL from './tpl';
 // import { parseI18nAttribute } from './parseI18nAttribute';
 import { ParsedElement } from './common';
@@ -12,34 +12,28 @@ export function parseComponentElement(
   _visitor: TemplateVisitor,
   tag: string,
   Component: string,
-  ctx: ParserRuleContext,
-) {
-  const result = parseAttributes(
-    _visitor,
-    'component',
-    Component,
-    ctx as unknown as ParseAttributesCtx,
-    _visitor._parent,
-  );
+  inode: ITag,
+): ParsedElement {
+  const result = parseAttributes(_visitor, 'component', Component, inode.attributes, _visitor._parent);
   /**
    * for 组件也是一个标准组件，并没有特殊性，且组件别名也可以被覆盖。因此只给予避免踩杭的告警，
    * 而不是抛出错误。
    */
   if (tag === 'for' && !result.vms.find((v) => v.reflect === 'each')) {
-    logParseError(_visitor, ctx.start, '<for> component require vm:each attribute.', 'Warning');
+    logParseError(_visitor, inode.loc.start, '<for> component require vm:each attribute.', 'Warning');
   }
-  let elements = _visitor.visitChildNodes(ctx as unknown as VisitChildNodesCtx, result.vms, {
+  let elements = _visitor.visitChildNodes(inode.body, result.vms, {
     type: 'component',
     sub: result.argPass || result.vms.length > 0 ? 'argument' : result.argUse ? 'parameter' : 'normal',
     vms: result.vms,
   });
   if (tag === '_slot' && elements.length === 0 && result.argPass) {
-    _visitor._throwParseError(ctx.start, '<_slot> component with slot-pass: attribute must have child.');
+    _visitor._throwParseError(inode.loc.start, '<_slot> component with slot-pass: attribute must have child.');
   }
-  const hasArg = _visitor._assert_arg_pass(ctx.start, elements, tag);
+  const hasArg = _visitor._assert_arg_pass(inode.loc.start, elements, tag);
   if (result.vms.length > 0 && !result.argPass && hasArg) {
     _visitor._throwParseError(
-      ctx.start,
+      inode.loc.start,
       "if component has vm-use: attribute but do not have slot-pass: attribute, it's root children can't have slot-pass: attribute.",
     );
   }
@@ -74,10 +68,10 @@ export function parseComponentElement(
   }
 
   const attrs = [];
-  result.argAttrs.length > 0 && attrs.push(...result.argAttrs.map((at) => `${convertAttributeName(at[0])}: null`));
+  result.argAttrs.length > 0 && attrs.push(...result.argAttrs.map((at) => `${convertAttributeName(at.name)}: null`));
   // result.translateAttrs.length > 0 && attrs.push(...result.translateAttrs.map((at) => `${at[0]}: null`));
   result.constAttrs.length > 0 &&
-    attrs.push(...result.constAttrs.map((at) => `${convertAttributeName(at[0])}: ${JSON.stringify(at[1])}`));
+    attrs.push(...result.constAttrs.map((at) => `${convertAttributeName(at.name)}: ${at.code}}`));
 
   const vmAttrs = `const attrs = attrs${SYMBOL_POSTFIX}({
   [__${SYMBOL_POSTFIX}]: {
@@ -88,8 +82,8 @@ ${
     ? prependTab2Space(`  listeners: {
 ${result.listeners.map(
   (lt) =>
-    `    ${convertAttributeName(lt[0])}: { fn: function(...args) { ${lt[1].code} }, opts: ${
-      lt[1].tag ? `${JSON.stringify(lt[1].tag)}` : 'null'
+    `    ${convertAttributeName(lt.name)}: { fn: function(...args) { ${lt.code} }, opts: ${
+      lt.tag ? `${JSON.stringify(lt.tag)}` : 'null'
     } }`,
 )}
 },`)
@@ -107,10 +101,10 @@ ${prependTab2Space(attrs.join(',\n'), true)}
 });
 ${result.argAttrs
   .map((at, i) =>
-    replaceTpl(at[1], {
+    replaceTpl(at.code, {
       REL_COM: `component[$$${SYMBOL_POSTFIX}]`,
       ROOT_INDEX: i.toString(),
-      RENDER_START: `attrs.${at[0]} = `,
+      RENDER_START: `attrs.${at.name} = `,
       RENDER_END: ';',
     }),
   )

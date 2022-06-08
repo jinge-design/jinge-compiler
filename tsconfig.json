@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "module": "esnext",
+    "module": "commonjs",
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "target": "es2020",
@@ -12,7 +12,7 @@
     "moduleResolution": "node",
     "declaration": true,
     "sourceMap": true,
-    "outDir": "compiler",
+    "outDir": "lib",
     "noEmit": true,
     "baseUrl": ".",
     "paths": {

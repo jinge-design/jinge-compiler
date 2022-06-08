@@ -13,9 +13,7 @@ export function logParseError(_visitor: TemplateVisitor, tokenPosition: Position
   idx = idx + 1;
   const eidx = _visitor._source.indexOf('\n', idx);
   _visitor._emitErrorFn(
-    new Error(`${type} occur at line ${tokenPosition.line}, column ${
-      tokenPosition.column
-    }:
+    new Error(`${type} occur at line ${tokenPosition.line}, column ${tokenPosition.column}:
 > ${_visitor._source.substring(idx, eidx > idx ? eidx : _visitor._source.length)}
 > ${_visitor._resourcePath}
 > ${msg}`),
@@ -34,6 +32,7 @@ export function prependTab2Space(str: string, replaceStartEndEmpty = false) {
 }
 
 export function replaceTplStr(tpl: string, ctx: Record<string, string>) {
+  if (!tpl) debugger;
   for (const k in ctx) {
     tpl = tpl.replace(new RegExp('\\$' + k + '\\$', 'g'), ctx[k].replace(/\$/g, '$$$$'));
   }

@@ -6,10 +6,7 @@ export interface JingeLoaderOptions {
   componentAlias?: ComponentAlias;
 }
 
-export default function TemplateLoader(
-  this: LoaderContext<JingeLoaderOptions>,
-  source: string
-) {
+export default function TemplateLoader(this: LoaderContext<JingeLoaderOptions>, source: string) {
   const callback = this.async();
   if (this._compiler.parentCompilation) {
     return callback(null, source);
@@ -23,7 +20,7 @@ export default function TemplateLoader(
     emitErrorFn: (err: unknown) => {
       this.emitError(err as Error);
     },
-  }).then(({ code, ast }) => {
-    callback(null, code, undefined, ast || undefined);
+  }).then(({ code }) => {
+    callback(null, code);
   }, callback);
 }

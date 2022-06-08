@@ -11,7 +11,7 @@ export function parseArgUseParameter(
   argUse: ArgUseAttribute,
   vmPass: VMPassAttribute[],
   vmLevel: number,
-) {
+): ParsedElement {
   let vmPassInitCode = '';
   let vmPassSetCode = '';
   let vmPassWatchCode = '';
@@ -32,7 +32,6 @@ export function parseArgUseParameter(
       vmPassParamCode.push(vp.name);
     });
   }
-  debugger;
   return {
     type: 'component',
     sub: 'parameter',

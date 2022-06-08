@@ -1,28 +1,17 @@
-import path from 'path';
-import crypto from 'crypto';
-import escodegen from 'escodegen';
 import HTMLTags from 'html-tags';
 import SVGTags from 'svg-tags';
 import { decode } from 'html-entities';
-import { ParserRuleContext } from 'antlr4-build';
 import { ImportDeclaration, Program } from 'estree';
+import { Parser } from 'acorn';
+import { INode, ITag, IText, SyntaxKind } from '@jingeweb/html5parser';
 import { aliasManager } from '../alias';
-import TemplateParserVisitor from '../parser/TemplateParserVisitor';
-import TemplateParser from '../parser/TemplateParser';
-import { SYMBOL_POSTFIX } from '../../util';
+import { IMPORT_POSTFIX, SYMBOL_POSTFIX } from '../../util';
 import * as TPL from './tpl';
 import { logParseError, prependTab2Space, replaceTpl } from './helper';
 import { Parent, ParsedElement, Position, VM } from './common';
 import { parseComponentElement } from './parseComponentElement';
 import { parseHtmlElement } from './parseHtmlElement';
 import { parseExpr } from './parseExpr';
-import { Parser } from 'acorn';
-
-const IMPORT_POSTFIX = '792732ac12612c8319900801';
-
-export type VisitChildNodesCtx = ParserRuleContext & {
-  htmlNode: () => ParserRuleContext[];
-};
 
 export interface TemplateVisitorOptions {
   source: string;
@@ -30,7 +19,8 @@ export interface TemplateVisitorOptions {
   addDebugName: boolean;
   emitErrorFn: (err: unknown) => void;
 }
-export class TemplateVisitor extends TemplateParserVisitor {
+export class TemplateVisitor {
+  _source: string;
   _stack: {
     vms: VM[];
     parent: Parent;
@@ -39,7 +29,6 @@ export class TemplateVisitor extends TemplateParserVisitor {
   _vms: VM[];
   _resourcePath: string;
   _emitErrorFn: (err: unknown) => void;
-  _source: string;
   _addDebugName: boolean;
   _needHandleComment: boolean;
   _parent: Parent;
@@ -51,11 +40,10 @@ export class TemplateVisitor extends TemplateParserVisitor {
   _importOutputCodes: unknown[];
 
   constructor(opts: TemplateVisitorOptions) {
-    super();
+    this._source = opts.source;
     this._stack = [];
     this._underMode_T = false;
     this._vms = [];
-    this._source = opts.source;
     this._resourcePath = opts.resourcePath;
     this._emitErrorFn = opts.emitErrorFn;
     this._addDebugName = opts.addDebugName;
@@ -64,10 +52,6 @@ export class TemplateVisitor extends TemplateParserVisitor {
       styles: new Set(),
     };
     this._importOutputCodes = [];
-    // this._i18nRenderDeps = {
-    //   codes: [],
-    //   keys: new Map(),
-    // };
     this._aliasImports = {};
     this._needHandleComment = true;
     this._parent = {
@@ -142,17 +126,8 @@ ${body}
 }`;
   }
 
-  visitChildNodes(ctx: VisitChildNodesCtx, vms: VM[], parent: Parent) {
-    const cnodes = ctx.htmlNode();
-    if (cnodes.length === 0) return [];
-    this._enter(vms, parent);
-    const elements = cnodes.map((n) => this.visitHtmlNode(n)).filter((el) => !!el);
-    this._exit();
-    return elements;
-  }
-
-  visitHtml(ctx: ParserRuleContext) {
-    const elements = (super.visitHtml(ctx) as ParsedElement[]).filter((el) => !!el);
+  visitHtml(inodes: INode[]) {
+    const elements = inodes.map((inode) => this.visitHtmlNode(inode)).filter((el) => !!el);
     return {
       renderFn: this._gen_render(elements, 0),
       // i18nDeps: this._i18nRenderDeps.codes.join('\n'),
@@ -161,83 +136,68 @@ ${body}
     };
   }
 
-  visitHtmlNode(ctx: ParserRuleContext) {
-    const elements = (super.visitHtmlNode(ctx) as ParsedElement[]).filter((el) => !!el);
-    if (elements.length === 0) return null;
-    else if (elements.length === 1) return elements[0];
-    else {
-      throw new Error('unexpected?!');
+  visitHtmlNode(inode: INode): ParsedElement | null {
+    if (inode.type === SyntaxKind.Text) {
+      return this.visitHtmlTextContent(inode);
+    } else if (inode.name === '!--') {
+      this.visitHtmlComment(inode.body[0] as IText);
+      return null;
+    } else {
+      return this.visitHtmlElement(inode);
     }
   }
 
-  visitHtmlTextContent(ctx: ParserRuleContext & { children: ParserRuleContext[] }) {
-    const eles: string[] = [];
-    // const last = ctx.children.length - 1;
-    ctx.children.forEach((cn) => {
-      let txt = cn.getText();
-      if (cn.ruleIndex === TemplateParser.RULE_htmlText) {
-        if (!txt.trim()) return;
-        try {
-          txt = decode(txt);
-        } catch (ex) {
-          this._throwParseError(ctx.start, ex.message);
-        }
-        txt = JSON.stringify(txt);
-        eles.push(
-          this._parent.type === 'html'
-            ? txt
-            : replaceTpl(TPL.TEXT_CONST, {
-                VAL: txt,
-              }),
-        );
-      } else {
-        txt = txt.substring(2, txt.length - 1).trim(); // extract from '${}'
-        if (!txt) return;
-        const result = replaceTpl(parseExpr(this, txt, cn).join('\n'), {
-          REL_COM: `component[$$${SYMBOL_POSTFIX}]`,
-          ROOT_INDEX: '0',
-          RENDER_START: 'setText$POSTFIX$(el, ',
-          RENDER_END: ');',
-        });
-        eles.push(
-          replaceTpl(TPL.TEXT_EXPR, {
-            PUSH_ELE: this._parent.type === 'component' ? replaceTpl(TPL.PUSH_ROOT_ELE) : '',
-            CODE: prependTab2Space(result),
-          }),
-        );
-      }
-      // return txt;
-    });
-    if (eles.length > 0) {
-      if (this._needHandleComment) {
-        this._needHandleComment = false; // we only handle comment on topest
-      }
+  visitChildNodes(inodes: INode[], vms: VM[], parent: Parent) {
+    if (!inodes?.length) return [];
+    this._enter(vms, parent);
+    const elements = inodes.map((n) => this.visitHtmlNode(n)).filter((el) => !!el);
+    this._exit();
+    return elements;
+  }
+
+  visitHtmlTextContent(inode: IText): ParsedElement {
+    let txt = inode.value.trim();
+    if (!txt) return null;
+    try {
+      txt = decode(txt);
+    } catch (ex) {
+      this._throwParseError(inode.loc.start, ex.message);
+    }
+    txt = '`' + txt + '`'; // 将文本转成 es6 字符串表达式
+    const { isConst, codes } = parseExpr(this, txt, inode.loc.start);
+    if (isConst) {
       return {
         type: 'text',
-        value: eles.join(',\n'),
+        value: this._parent.type === 'html' ? codes[0] : replaceTpl(TPL.TEXT_CONST, { VAL: codes[0] }),
       };
-    } else {
-      return null;
     }
-  }
-
-  visitHtmlElement(
-    ctx: ParserRuleContext & {
-      htmlStartTag: () => ParserRuleContext;
-      htmlEndTag: () => ParserRuleContext;
-    },
-  ) {
+    const result = replaceTpl(codes.join('\n'), {
+      REL_COM: `component[$$${SYMBOL_POSTFIX}]`,
+      ROOT_INDEX: '0',
+      RENDER_START: 'setText$POSTFIX$(el, ',
+      RENDER_END: ');',
+    });
+    const code = replaceTpl(TPL.TEXT_EXPR, {
+      PUSH_ELE: this._parent.type === 'component' ? replaceTpl(TPL.PUSH_ROOT_ELE) : '',
+      CODE: prependTab2Space(result),
+    });
     if (this._needHandleComment) {
       this._needHandleComment = false; // we only handle comment on topest
     }
-    const etag = ctx.htmlStartTag().getText();
-    const endT = ctx.htmlEndTag();
-    if (endT && endT.getText() !== etag) {
-      this._throwParseError(endT.start, `close tag <${endT.getText()}> does not match open <${etag}>`);
+    return {
+      type: 'text',
+      value: code,
+    };
+  }
+
+  visitHtmlElement(inode: ITag) {
+    if (this._needHandleComment) {
+      this._needHandleComment = false; // we only handle comment on topest
     }
+    const etag = inode.rawName;
     if (etag.startsWith('_') /* && etag !== '_t' */ && etag !== '_slot') {
       this._throwParseError(
-        ctx.start,
+        inode.loc.start,
         'html tag starts with "_" is compiler preserved tag name. Current version only support: "<_slot>". see https://todo"',
       );
     }
@@ -246,36 +206,34 @@ ${body}
     //   return parseTranslate(this, ctx);
     // } else
     if (etag === '_slot') {
-      return parseComponentElement(this, etag, etag, ctx);
+      return parseComponentElement(this, etag, etag, inode);
     } else if (/^[a-z\d_-]+$/.test(etag)) {
       const componentTag = aliasManager.getComponentOfAlias(etag, this._aliasImports);
       if (componentTag) {
-        return parseComponentElement(this, etag, componentTag, ctx);
+        return parseComponentElement(this, etag, componentTag, inode);
       }
       if (etag !== 'svg' && this._parent.isSVG && SVGTags.indexOf(etag) < 0) {
-        logParseError(this, ctx.start, `${etag} is not known svg tag.`);
+        logParseError(this, inode.loc.start, `${etag} is not known svg tag.`);
       }
       if (etag !== 'svg' && !this._parent.isSVG && (HTMLTags as string[]).indexOf(etag) < 0) {
         logParseError(
           this,
-          ctx.start,
+          inode.loc.start,
           `'${etag}' is not known html tag, do you forgot to config component alias?`,
           'Warning',
         );
       }
-      return parseHtmlElement(this, etag, ctx);
+      return parseHtmlElement(this, etag, inode);
     }
-    if (this._imports.components.has(etag)) {
-      this._throwParseError(ctx.start, `Component '${etag}' not found. Forgot to import it on the top?`);
+    if (!this._imports.components.has(etag)) {
+      this._throwParseError(inode.loc.start, `Component '${etag}' not found. Forgot to import it on the top?`);
     }
-    return parseComponentElement(this, etag, etag + IMPORT_POSTFIX , ctx);
+    return parseComponentElement(this, etag, etag + IMPORT_POSTFIX, inode);
   }
 
-  visitHtmlComment(ctx: ParserRuleContext) {
+  visitHtmlComment(inode: IText) {
     if (!this._needHandleComment) return; // we only handle comment on topest
-    const comment = ctx.getText();
-    // extract code from comment: <!-- -->
-    const code = comment.substring(4, comment.length - 3);
+    const code = inode.value;
     // import keyword not found.
     if (!/(^|[\s;])import($|\s)/.test(code)) return;
     let tree;
@@ -293,26 +251,32 @@ ${body}
       );
       return;
     }
-    tree.body = tree.body.filter((node: ImportDeclaration) => {
-      if (node.type !== 'ImportDeclaration') return false;
-      const specifiers = [];
-      for (let i = 0; i < node.specifiers.length; i++) {
-        const spec = node.specifiers[i];
+    const imports: string[] = [];
+    tree.body.forEach((node: ImportDeclaration) => {
+      if (node.type !== 'ImportDeclaration' || !node.specifiers.length) {
+        return;
+      }
+      const src = node.source.value.toString();
+      let importCode = `import { `;
+      node.specifiers.forEach((spec) => {
+        if (spec.type === 'ImportNamespaceSpecifier') {
+          throw new Error('unsupport import type'); // 暂不支持 import * as X from 的写法。
+        }
         const local = spec.local.name;
-        const isStyle = /\.(css|less|sass|scss)$/.test(local);
+        const isStyle = /\.(css|less|sass|scss)$/.test(src);
         if (!/^[A-Z][a-zA-Z\d]*$/.test(local) && !isStyle) {
           this._throwParseError(
             {
-              line: ctx.start.line + spec.loc.start.line - 1,
+              line: inode.loc.start.line + spec.loc.start.line - 1,
               column: spec.loc.start.column,
             },
-            'Imported component name must match /^[A-Z][a-zA-Z\\d]+$/. see https://[todo]',
+            'Imported component name must match /^[A-Z][a-zA-Z\\d]+$/，but got: ' + local,
           );
         }
         if (this._imports.components.has(local) || this._imports.styles.has(local)) {
           this._throwParseError(
             {
-              line: ctx.start.line + spec.loc.start.line - 1,
+              line: inode.loc.start.line + spec.loc.start.line - 1,
               column: spec.loc.start.column,
             },
             'Dulplicate imported : ' + local,
@@ -320,24 +284,13 @@ ${body}
         }
         const imps = isStyle ? this._imports.styles : this._imports.components;
         imps.add(local);
-        spec.local = {
-          type: 'Identifier',
-          name: local + IMPORT_POSTFIX,
-        };
-        specifiers.push(spec);
-      }
-      if (specifiers.length > 0) {
-        node.specifiers = specifiers;
-        return true;
-      } else {
-        return false;
-      }
+        importCode += `${spec.type === 'ImportDefaultSpecifier' ? 'default' : spec.imported.name} as ${
+          local + IMPORT_POSTFIX
+        }`;
+      });
+      importCode += ` } from '${src}';`;
+      imports.push(importCode);
     });
-    if (tree.body.length === 0) return;
-    const output = escodegen.generate(tree, {
-      indent: '',
-    });
-    // console.log(output);
-    this._importOutputCodes.push(output);
+    this._importOutputCodes.push(imports.join('\n'));
   }
 }

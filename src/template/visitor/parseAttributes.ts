@@ -1,8 +1,7 @@
-import { ParserRuleContext } from 'antlr4-build';
+import { IAttribute } from '@jingeweb/html5parser';
 // import { i18nManager } from '../../i18n';
-import { Parent, VM } from './common';
+import { Parent, Position, VM } from './common';
 import { KNOWN_ATTR_TYPES } from './const';
-import { parseAttributeValue } from './parseAttributeValue';
 import { parseExpr } from './parseExpr';
 import { parseListener } from './parseListener';
 import { TemplateVisitor } from './visitor';
@@ -18,7 +17,6 @@ export interface VMPassAttribute {
 export interface TranslateAttribute {
   type: 'expr' | 'const';
   value: string;
-  ctx: ParserRuleContext;
 }
 
 export interface ArgUseAttribute {
@@ -28,35 +26,27 @@ export interface ArgUseAttribute {
 
 type Lis = [string, string, Record<string, boolean>];
 export interface ParseAttributesResult {
-  constAttrs: [string, string | boolean][];
-  argAttrs: [string, string][];
-  // translateAttrs: [string, TranslateAttribute][];
-  listeners: [string, { code: string; tag: Record<string, boolean> }][];
+  constAttrs: { name: string; code: string }[];
+  argAttrs: { name: string; code: string }[];
+  listeners: { name: string; code: string; tag: Record<string, boolean> }[];
   vms: VM[];
   vmPass: VMPassAttribute[];
   argPass: string | null;
   ref: string | null;
   argUse: ArgUseAttribute | null;
 }
-export type ParseAttributesCtx = ParserRuleContext & {
-  htmlAttribute: () => (ParserRuleContext & {
-    ATTR_NAME: () => ParserRuleContext;
-    ATTR_VALUE: () => ParserRuleContext;
-  })[];
-};
+
 export function parseAttributes(
   _visitor: TemplateVisitor,
   mode: 'html' | 'component',
   tag: string,
-  ctx: ParserRuleContext,
+  iattrs: IAttribute[],
   parentInfo: Parent,
 ): ParseAttributesResult {
-  const attrCtxs = (ctx as unknown as ParseAttributesCtx).htmlAttribute();
-  if (!attrCtxs || attrCtxs.length === 0) {
+  if (!iattrs || iattrs.length === 0) {
     return {
-      constAttrs: [],
       argAttrs: [],
-      // translateAttrs: [],
+      constAttrs: [],
       listeners: [],
       vms: [],
       vmPass: [],
@@ -71,12 +61,13 @@ export function parseAttributes(
           : null,
     };
   }
-  const constAttrs: Record<string, string | boolean> = {};
+
   // const translateAttrs: Record<string, TranslateAttribute> = {};
   const argAttrs: Record<string, string> = {};
-  const listeners: Record<string, Lis> = {};
+  const constAttrs: Record<string, string> = {};
+  const listenerAttrs: Record<string, Lis> = {};
   const vms: VM[] = [];
-  const vmPass: { name: string; expr: string }[] = [];
+  const vmPass: { name: string; expr: string; pos: Position }[] = [];
   const pVms = _visitor._vms;
   let argPass: string = null;
   let argUse: {
@@ -85,12 +76,8 @@ export function parseAttributes(
   } = null;
   let ref: string = null;
 
-  attrCtxs.forEach((attrCtx) => {
-    const attr_data = attrCtx
-      .ATTR_NAME()
-      .getText()
-      .split(':')
-      .map((it) => it.trim());
+  iattrs.forEach((iattr) => {
+    const attr_data = iattr.name.value.split(':');
     if (attr_data.length > 2) throw new Error('bad attribute format.');
 
     let [a_category, a_name] = attr_data;
@@ -98,6 +85,9 @@ export function parseAttributes(
     if (attr_data.length === 1) {
       a_name = a_category;
       a_category = 'str';
+    }
+    if (!a_category) {
+      a_category = 'expr';
     }
     if (a_category.startsWith('slot-use|')) {
       a_tag = a_category.substring(9);
@@ -115,16 +105,16 @@ export function parseAttributes(
     }
 
     if (a_category && KNOWN_ATTR_TYPES.indexOf(a_category.toLowerCase()) < 0) {
-      _visitor._throwParseError(attrCtx.start, 'unkown attribute type ' + a_category);
+      _visitor._throwParseError(iattr.loc.start, 'unkown attribute type ' + a_category);
     }
     if (!/^[\w\d$_-][\w\d$_.|-]*$/.test(a_name)) {
-      _visitor._throwParseError(attrCtx.start, 'attribute name must match /^[\\w\\d$_-][\\w\\d$_.|-]*$/');
+      _visitor._throwParseError(iattr.loc.start, 'attribute name must match /^[\\w\\d$_-][\\w\\d$_.|-]*$/');
     }
     a_category = a_category.toLowerCase();
 
     if (a_category === 'ref') {
-      if (!a_name) _visitor._throwParseError(attrCtx.start, 'ref attribute require name.');
-      if (ref) _visitor._throwParseError(attrCtx.start, 'ref attribute can only be used once!');
+      if (!a_name) _visitor._throwParseError(iattr.loc.start, 'ref attribute require name.');
+      if (ref) _visitor._throwParseError(iattr.loc.start, 'ref attribute can only be used once!');
       ref = a_name;
       return;
     }
@@ -133,29 +123,27 @@ export function parseAttributes(
     else if (a_category === 's') a_category = 'str';
     else if (a_category === 'e') a_category = 'expr';
 
-    const atv = attrCtx.ATTR_VALUE();
-    let aval = atv ? atv.getText().trim() : '';
+    let aval = iattr.value?.value?.trim() || '';
     // extract from quote
-    if (aval) aval = aval.slice(1, aval.length - 1).trim();
 
     if (a_category === 'vm-use') {
-      if (!a_name) _visitor._throwParseError(attrCtx.start, 'vm-use type attribute require reflect variable name.');
+      if (!a_name) _visitor._throwParseError(iattr.loc.start, 'vm-use type attribute require reflect variable name.');
       if (!aval) aval = a_name;
       if (!/^[\w\d$_]+$/.test(aval))
         _visitor._throwParseError(
-          attrCtx.start,
+          iattr.loc.start,
           'vm-use type attribute value must match /^[\\w\\d$_]+$/, but got: ' + aval,
         );
       if (!/^[\w\d$_]+$/.test(a_name))
         _visitor._throwParseError(
-          attrCtx.start,
+          iattr.loc.start,
           'vm-use type attribute reflect vairable name must match /^[\\w\\d$_]+$/, but got: ' + a_name,
         );
       if (vms.find((v) => v.name === aval))
-        _visitor._throwParseError(attrCtx.start, 'vm-use type attribute name dulipcated: ' + a_name);
+        _visitor._throwParseError(iattr.loc.start, 'vm-use type attribute name dulipcated: ' + a_name);
       if (pVms.find((v) => v.name === aval))
         _visitor._throwParseError(
-          attrCtx.start,
+          iattr.loc.start,
           'vm-use attribute reflect vairiable name"' + a_name + '" has been declared in parent context.',
         );
       vms.push({
@@ -167,34 +155,36 @@ export function parseAttributes(
     }
 
     if (a_category === 'vm-pass') {
-      if (!a_name) _visitor._throwParseError(attrCtx.start, 'vm-pass type attribute require reflect variable name.');
+      if (!a_name) _visitor._throwParseError(iattr.loc.start, 'vm-pass type attribute require reflect variable name.');
       if (!aval) aval = a_name;
-      if (mode === 'html') _visitor._throwParseError(attrCtx.start, "vm-pass attribute can't be used on html element");
+      if (mode === 'html')
+        _visitor._throwParseError(iattr.loc.start, "vm-pass attribute can't be used on html element");
       if (!/^[\w\d$_]+$/.test(a_name))
         _visitor._throwParseError(
-          attrCtx.start,
+          iattr.loc.start,
           'vm-pass type attribute reflect vairable name must match /^[\\w\\d$_]+$/',
         );
       if (vmPass.find((v) => v.name === a_name))
-        _visitor._throwParseError(attrCtx.start, 'vm-pass type attribute name dulipcated: ' + a_name);
+        _visitor._throwParseError(iattr.loc.start, 'vm-pass type attribute name dulipcated: ' + a_name);
       vmPass.push({
         name: a_name,
         expr: aval,
+        pos: iattr.loc.start,
       });
       return;
     }
 
     if (a_category === 'slot-pass') {
-      if (argPass) _visitor._throwParseError(attrCtx.start, 'slot-pass: attribute can only be used once!');
+      if (argPass) _visitor._throwParseError(iattr.loc.start, 'slot-pass: attribute can only be used once!');
       if (parentInfo.sub === 'argument') {
         _visitor._throwParseError(
-          attrCtx.start,
+          iattr.loc.start,
           "if parent component has slot-pass: or vm-use: attribute, child component can't also have slot-pass: attribue. Try to put component under <_slot>.",
         );
       }
       if (parentInfo.type !== 'component') {
         _visitor._throwParseError(
-          attrCtx.start,
+          iattr.loc.start,
           'slot-pass: attribute can only be used as root child of Component element.',
         );
       }
@@ -204,7 +194,7 @@ export function parseAttributes(
 
     if (a_category === 'slot-use') {
       if (argUse) {
-        _visitor._throwParseError(attrCtx.start, 'slot-use: attribute can only be used once!');
+        _visitor._throwParseError(iattr.loc.start, 'slot-use: attribute can only be used once!');
       }
       if (a_tag) {
         const ns = (a_tag as string).split('.');
@@ -222,59 +212,38 @@ export function parseAttributes(
 
     if (a_category === 'on') {
       if (!a_name) {
-        _visitor._throwParseError(attrCtx.start, 'event name is required!');
+        _visitor._throwParseError(iattr.loc.start, 'event name is required!');
       }
-      if (a_name in listeners) {
-        _visitor._throwParseError(attrCtx.start, 'event name is dulplicated: ' + a_name);
+      if (a_name in listenerAttrs) {
+        _visitor._throwParseError(iattr.loc.start, 'event name is dulplicated: ' + a_name);
       }
-      listeners[a_name] = [aval, mode, a_tag as Record<string, boolean>];
+      listenerAttrs[a_name] = [aval, mode, a_tag as Record<string, boolean>];
       return;
     }
 
     if (/* a_name in translateAttrs || */ a_name in constAttrs || a_name in argAttrs) {
-      _visitor._throwParseError(attrCtx.start, 'dulplicated attribute: ' + a_name);
+      _visitor._throwParseError(iattr.loc.start, 'dulplicated attribute: ' + a_name);
     }
     if (!aval) {
       // if (a_category === '_t') {
-      //   _visitor._throwParseError(attrCtx.start, 'attribute with _t: type require non-empty value');
+      //   _visitor._throwParseError(iattr.loc.start, 'attribute with _t: type require non-empty value');
       // }
       if (a_category === 'expr') {
-        _visitor._throwParseError(attrCtx.start, 'Attribute with expression type must have value.');
+        _visitor._throwParseError(iattr.loc.start, 'Attribute with expression type must have value.');
       }
-      constAttrs[a_name] = atv ? '' : true;
-      return;
+      a_category = 'expr';
+      aval = 'true';
     }
 
-    // if (a_category === '_t') {
-    //   if (!a_name || !aval) _visitor._throwParseError(attrCtx.start, '_t: type attribute require name and value.');
-    //   if (i18nManager.written) {
-    //     /**
-    //      * 如果多语言脚本资源已经处理过了（i18nManager.written === true），说明是在
-    //      *   启用了 watch 的研发模式下，文件发生变化后重新编译，这种情况下，由于多方面的复杂
-    //      *   问题不好解决，暂时先简化为不做多语言的处理。
-    //      */
-    //     a_category = 'str';
-    //   } else {
-    //     translateAttrs[a_name] = {
-    //       type: aval.indexOf('${') >= 0 ? 'expr' : 'const',
-    //       value: aval,
-    //       ctx: ctx,
-    //     };
-    //     return;
-    //   }
-    // }
-
-    if (a_category === 'expr') {
-      argAttrs[a_name] = aval;
-      return;
+    if (a_category === 'str') {
+      aval = '`' + aval + '`';
     }
-
-    if (aval.indexOf('${') < 0) {
-      constAttrs[a_name] = aval;
-      return;
+    const res = parseExpr(_visitor, aval, iattr.loc.start);
+    if (res.isConst) {
+      constAttrs[a_name] = res.codes[0];
+    } else {
+      argAttrs[a_name] = res.codes.join('\n');
     }
-
-    argAttrs[a_name] = parseAttributeValue(aval);
   });
 
   /*
@@ -432,34 +401,35 @@ export function parseAttributes(
    *
    */
 
+  const attrsPos = iattrs[0].loc.start;
   // slot-pass: 属性和 arg-use: 属性不能同时存在，详见上面的注释。
   if (argPass && argUse) {
-    _visitor._throwParseError(ctx.start, "slot-pass: and slot-use: attribute can' be both used on same element");
+    _visitor._throwParseError(attrsPos, "slot-pass: and slot-use: attribute can' be both used on same element");
   }
 
   // html 元素上的必须有 slot-pass: 属性，才能有 vm-use: 属性
   // component 元素可以只有 vm-use: 属性，但需要满足上面注释里详细描述的条件，这个条件的检测在之后的代码逻辑里。
   if (vms.length > 0 && !argPass && mode === 'html') {
     _visitor._throwParseError(
-      ctx.start,
+      attrsPos,
       'vm-use: attribute require slot-pass: attribute on html element. see https://[todo]',
     );
   }
 
   // vm-pass: 属性必须用在有 arg-use: 属性的元素上。
   if (vmPass.length > 0 && !argUse) {
-    _visitor._throwParseError(ctx.start, 'vm-pass: attribute require slot-use: attribute');
+    _visitor._throwParseError(attrsPos, 'vm-pass: attribute require slot-use: attribute');
   }
   // vm-use: 属性不能用在有 arg-use: 属性的元素上。
   if (argUse && vms.length > 0) {
-    _visitor._throwParseError(ctx.start, "vm-use: attribute can't be used with slot-use: attribute");
+    _visitor._throwParseError(attrsPos, "vm-use: attribute can't be used with slot-use: attribute");
   }
   if (argPass && (_visitor._parent.type !== 'component' || _visitor._parent.sub === 'root')) {
-    _visitor._throwParseError(ctx.start, "slot-pass: attribute can only be used on Component element's root child.");
+    _visitor._throwParseError(attrsPos, "slot-pass: attribute can only be used on Component element's root child.");
   }
   //
   if (tag === '_slot' && !argPass && !argUse) {
-    _visitor._throwParseError(ctx.start, '<_slot> component require "slot-pass:" or "slot-use:" attribute.');
+    _visitor._throwParseError(attrsPos, '<_slot> component require "slot-pass:" or "slot-use:" attribute.');
   }
   /**
    * 如果元素上有 slot-pass: 和 vm-use: ，则该元素等价于被包裹在
@@ -496,14 +466,9 @@ export function parseAttributes(
   }
 
   const rtn = {
-    constAttrs: obj2arr(constAttrs),
-    argAttrs: obj2arr(argAttrs).map((at) => {
-      const e = parseExpr(_visitor, at[1], ctx).join('\n');
-      at[1] = e;
-      return at;
-    }),
-    // translateAttrs: obj2arr(translateAttrs),
-    listeners: obj2arr(listeners).map((lis) => {
+    constAttrs: Object.keys(constAttrs).map((k) => ({ name: k, code: constAttrs[k] })),
+    argAttrs: Object.keys(argAttrs).map((k) => ({ name: k, code: argAttrs[k] })),
+    listeners: obj2arr(listenerAttrs).map((lis) => {
       const lisResult = parseListener(_visitor, ...lis[1]);
       lisResult.code = lisResult.code
         .replace(/(^[\s;]+)|([\s;]+$)/g, '')
@@ -511,13 +476,13 @@ export function parseAttributes(
         .replace(/;+/g, ';')
         .replace(/\{\s*;+/g, '{');
 
-      return [lis[0], lisResult] as [string, { code: string; tag: Record<string, boolean> }];
+      return { name: lis[0], ...lisResult };
     }),
     vms,
     vmPass: vmPass.map((vp) => {
       return {
         name: vp.name,
-        expr: parseExpr(_visitor, vp.expr, ctx),
+        expr: parseExpr(_visitor, vp.expr, vp.pos).codes,
       };
     }),
     argPass,
@@ -528,11 +493,8 @@ export function parseAttributes(
     _visitor._vms = pVms;
   }
 
-  if (
-    tag === '_slot' &&
-    (rtn.ref || rtn.constAttrs.length > 0 || rtn.argAttrs.length > 0 || rtn.listeners.length > 0)
-  ) {
-    _visitor._throwParseError(ctx.start, '<_slot> component can only have slot-pass: or slot-use: attribute');
+  if (tag === '_slot' && (rtn.ref || rtn.argAttrs.length > 0 || rtn.listeners.length > 0)) {
+    _visitor._throwParseError(attrsPos, '<_slot> component can only have slot-pass: or slot-use: attribute');
   }
   return rtn;
 }

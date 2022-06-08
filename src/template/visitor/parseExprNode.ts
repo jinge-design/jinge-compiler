@@ -1,7 +1,7 @@
 import { generate } from 'escodegen';
 import { Node } from 'acorn';
 import { CallExpression, ConditionalExpression, Expression, Identifier, MemberExpression, Statement } from 'estree';
-import { isSimpleProp, SYMBOL_POSTFIX } from '../../util';
+import { IMPORT_POSTFIX, isSimpleProp, SYMBOL_POSTFIX } from '../../util';
 import { walkAcorn } from './helper';
 import { MememberPath, parseExprMemberNode } from './parseExprMemberNode';
 import { TemplateVisitor } from './visitor';
@@ -167,7 +167,7 @@ export function parseExprNode(
 ) {
   const computedMemberExprs: ReturnType<typeof parseExprMemberNode>[] = [];
   const watchPaths: P[] = [];
-
+  let meetId: boolean;
   walkAcorn(expr as unknown as Node, {
     CallExpression: (node: CallExpression) => {
       _visitor._throwParseError(
@@ -179,7 +179,9 @@ export function parseExprNode(
       );
     },
     Identifier: (node: Identifier) => {
+      meetId = true;
       if (_visitor._imports.styles.has(node.name)) {
+        node.name += IMPORT_POSTFIX;
         return false;
       }
       convert(
@@ -197,10 +199,12 @@ export function parseExprNode(
       return false;
     },
     MemberExpression: (node: MemberExpression) => {
-      if (_visitor._imports.styles.has((node.object as Identifier).name)) {
+      meetId = true;
+      const mn = parseExprMemberNode(_visitor, node, info.startLine);
+      if (_visitor._imports.styles.has(mn.root.name)) {
+        mn.root.name += IMPORT_POSTFIX;
         return false;
       }
-      const mn = parseExprMemberNode(_visitor, node, info.startLine);
       if (mn.computed < 1) {
         convert(mn.memExpr, mn.root, mn.paths, _visitor._vms, watchPaths);
       } else {
@@ -210,13 +214,22 @@ export function parseExprNode(
     },
   });
 
+  if (!meetId) {
+    // 如果没有 Identifier 或者 MemberExpression，说明是常量表达式。
+    const code = generate(expr);
+    const res = new Function('return ' + code)();
+    return {
+      isConst: true,
+      codes: [JSON.stringify(res)],
+    };
+  }
   const levelId = levelPath.join('_');
   const parentLevelId = levelPath.slice(0, levelPath.length - 1).join('_');
 
   if (computedMemberExprs.length === 0) {
     if (levelPath.length === 1) {
       const needWrapViewModel = expr.type === 'ObjectExpression' || expr.type === 'ArrayExpression';
-      return [
+      const codes = [
         '',
         `const fn_$ROOT_INDEX$ = () => {\n  $RENDER_START$${needWrapViewModel ? `vm${SYMBOL_POSTFIX}(` : ''}${generate(
           expr,
@@ -227,8 +240,12 @@ export function parseExprNode(
           .map((p) => `${p.vm}[$$${SYMBOL_POSTFIX}].__watch(${p.n}, fn_$ROOT_INDEX$, $REL_COM$);`)
           .join('\n')}`,
       ];
+      return {
+        isConst: false,
+        codes,
+      };
     } else {
-      return [
+      const codes = [
         `let _${levelId};`,
         `function _calc_${levelId}() {
 _${levelId} = ${generate(expr)};
@@ -243,6 +260,10 @@ _update_${parentLevelId}();
           .map((p) => `${p.vm}[$$${SYMBOL_POSTFIX}].__watch(${p.n}, _update_${levelId}, $REL_COM$);`)
           .join('\n')}`,
       ];
+      return {
+        isConst: false,
+        codes,
+      };
     }
   } else {
     const assignCodes: string[] = [];
@@ -265,12 +286,8 @@ _update_${parentLevelId}();
           throw new Error('unexpected');
         }
         const llv = lv.slice().concat([(__si++).toString()]);
-        const [_ac, _cc, _ic, _uc, _wc] = parseExprNode(
-          _visitor,
-          info,
-          (cmp.value as MemberExpression).property as Identifier,
-          llv,
-        );
+        const res = parseExprNode(_visitor, info, (cmp.value as MemberExpression).property as Identifier, llv);
+        const [_ac, _cc, _ic, _uc, _wc] = res.codes;
         _ac && assignCodes.push(_ac);
         _cc && calcCodes.push(_cc);
         _ic && initCodes.push(_ic);
@@ -347,12 +364,15 @@ _notify_${parentLevelId}();
       );
     }
 
-    return [
-      assignCodes.join('\n'),
-      calcCodes.join('\n'),
-      initCodes.join('\n'),
-      updateCodes.join('\n'),
-      watchCodes.join('\n'),
-    ];
+    return {
+      isConst: false,
+      codes: [
+        assignCodes.join('\n'),
+        calcCodes.join('\n'),
+        initCodes.join('\n'),
+        updateCodes.join('\n'),
+        watchCodes.join('\n'),
+      ],
+    };
   }
 }

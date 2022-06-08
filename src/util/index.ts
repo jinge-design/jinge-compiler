@@ -1,7 +1,9 @@
 import path from 'path';
 import fs from 'fs';
 
-export const SYMBOL_POSTFIX = '792732ac12612c8319900402';
+export const SYMBOL_POSTFIX = '_b3e32ac12612c8319900402';
+export const IMPORT_POSTFIX = '_b3e32ac12612c8319900801';
+export const ALIAS_POSTFIX = '_b3e32ac12612c8320180712';
 
 export function isString(v: unknown): v is string {
   return typeof v === 'string';

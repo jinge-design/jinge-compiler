@@ -1,17 +1,17 @@
-import { ParserRuleContext } from 'antlr4-build';
+import { ITag } from '@jingeweb/html5parser';
 import { convertAttributeName, SYMBOL_POSTFIX } from '../../util';
 import { HTML_BOOL_IDL_ATTRS, HTML_COMMON_IDL_ATTRS } from './const';
 import { prependTab2Space, replaceTpl } from './helper';
 import { parseAttributes, ParseAttributesResult } from './parseAttributes';
 import { SET_REF_ELE, PUSH_ROOT_ELE } from './tpl';
-import { TemplateVisitor, VisitChildNodesCtx } from './visitor';
+import { TemplateVisitor } from './visitor';
 // import { parseI18nAttribute } from './parseI18nAttribute';
 import { parseArgUseParameter } from './parseArgUseParameter';
 import { ParsedElement } from './common';
 
-export function parseHtmlElement(_visitor: TemplateVisitor, etag: string, ctx: ParserRuleContext) {
-  const result = parseAttributes(_visitor, 'html', etag, ctx, _visitor._parent) as ParseAttributesResult;
-  const elements = _visitor.visitChildNodes(ctx as unknown as VisitChildNodesCtx, result.vms, {
+export function parseHtmlElement(_visitor: TemplateVisitor, etag: string, inode: ITag): ParsedElement {
+  const result = parseAttributes(_visitor, 'html', etag, inode.attributes, _visitor._parent) as ParseAttributesResult;
+  const elements = _visitor.visitChildNodes(inode.body, result.vms, {
     type: 'html',
     isSVG: _visitor._parent.isSVG || etag === 'svg',
   });
@@ -28,7 +28,7 @@ export function parseHtmlElement(_visitor: TemplateVisitor, etag: string, ctx: P
   const ce = `${ceFn}${SYMBOL_POSTFIX}`;
   const arr = [`"${etag}"`];
   if (result.constAttrs.length > 0) {
-    const attrsArr = result.constAttrs.map((at) => `  ${convertAttributeName(at[0])}: ${JSON.stringify(at[1])}`);
+    const attrsArr = result.constAttrs.map((at) => `  ${convertAttributeName(at.name)}: ${at.code}`);
     const attrsCode = `{\n${attrsArr.join(',\n')}\n}`;
     arr.push(attrsCode);
   }
@@ -50,31 +50,31 @@ ${prependTab2Space(arr.join(',\n'))}
 );
 ${result.argAttrs
   .map((at, i) => {
-    if (at[0] in HTML_BOOL_IDL_ATTRS) {
-      const attr = HTML_BOOL_IDL_ATTRS[at[0] as keyof typeof HTML_BOOL_IDL_ATTRS];
+    if (at.name in HTML_BOOL_IDL_ATTRS) {
+      const attr = HTML_BOOL_IDL_ATTRS[at.name as keyof typeof HTML_BOOL_IDL_ATTRS];
       if (attr.tags === '*' || attr.tags.indexOf(etag) >= 0) {
-        return replaceTpl(at[1], {
+        return replaceTpl(at.code, {
           REL_COM: `component[$$${SYMBOL_POSTFIX}]`,
           ROOT_INDEX: i.toString(),
-          RENDER_START: `el.${at[0]} = !!(`,
+          RENDER_START: `el.${at.name} = !!(`,
           RENDER_END: ');',
         });
       }
-    } else if (at[0] in HTML_COMMON_IDL_ATTRS) {
-      const attr = HTML_COMMON_IDL_ATTRS[at[0] as keyof typeof HTML_COMMON_IDL_ATTRS];
+    } else if (at.name in HTML_COMMON_IDL_ATTRS) {
+      const attr = HTML_COMMON_IDL_ATTRS[at.name as keyof typeof HTML_COMMON_IDL_ATTRS];
       if (attr.tags.indexOf(etag) >= 0) {
-        return replaceTpl(at[1], {
+        return replaceTpl(at.code, {
           REL_COM: `component[$$${SYMBOL_POSTFIX}]`,
           ROOT_INDEX: i.toString(),
-          RENDER_START: `el.${at[0]} = `,
+          RENDER_START: `el.${at.name} = `,
           RENDER_END: ';',
         });
       }
     }
-    return replaceTpl(at[1], {
+    return replaceTpl(at.code, {
       REL_COM: `component[$$${SYMBOL_POSTFIX}]`,
       ROOT_INDEX: i.toString(),
-      RENDER_START: `setAttribute$POSTFIX$(el, "${at[0]}", `,
+      RENDER_START: `setAttribute$POSTFIX$(el, "${at.name}", `,
       RENDER_END: ');',
     });
   })
@@ -88,9 +88,9 @@ ${
 }
 ${result.listeners
   .map((lt) => {
-    return `addEvent${SYMBOL_POSTFIX}(el, '${lt[0]}', function(...args) {${lt[1].code}${
-      lt[1].tag?.stop ? ';args[0].stopPropagation()' : ''
-    }${lt[1].tag?.prevent ? ';args[0].preventDefault()' : ''}}${lt[1].tag ? `, ${JSON.stringify(lt[1].tag)}` : ''})`;
+    return `addEvent${SYMBOL_POSTFIX}(el, '${lt.name}', function(...args) {${lt.code}${
+      lt.tag?.stop ? ';args[0].stopPropagation()' : ''
+    }${lt.tag?.prevent ? ';args[0].preventDefault()' : ''}}${lt.tag ? `, ${JSON.stringify(lt.tag)}` : ''})`;
   })
   .join('\n')}
 ${setRefCode}
