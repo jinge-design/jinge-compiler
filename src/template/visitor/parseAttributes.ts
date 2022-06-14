@@ -470,11 +470,11 @@ export function parseAttributes(
     argAttrs: Object.keys(argAttrs).map((k) => ({ name: k, code: argAttrs[k] })),
     listeners: obj2arr(listenerAttrs).map((lis) => {
       const lisResult = parseListener(_visitor, ...lis[1]);
-      lisResult.code = lisResult.code
-        .replace(/(^[\s;]+)|([\s;]+$)/g, '')
-        .replace(/[\r\n]/g, ';')
-        .replace(/;+/g, ';')
-        .replace(/\{\s*;+/g, '{');
+      // lisResult.code = lisResult.code
+      //   .replace(/(^[\s;]+)|([\s;]+$)/g, '')
+      //   .replace(/[\r\n]/g, ';')
+      //   .replace(/;+/g, ';')
+      //   .replace(/\{\s*;+/g, '{');
 
       return { name: lis[0], ...lisResult };
     }),

@@ -1,11 +1,9 @@
-import { generate } from 'escodegen';
 import { Node } from 'acorn';
-import { CallExpression, ConditionalExpression, Expression, Identifier, MemberExpression, Statement } from 'estree';
-import { IMPORT_POSTFIX, isSimpleProp, SYMBOL_POSTFIX } from '../../util';
+import { CallExpression, Expression, Identifier, MemberExpression } from 'estree';
+import { getReplaceResult, IMPORT_POSTFIX, ReplaceItem, sortedInsert, SYMBOL_POSTFIX } from '../../util';
 import { walkAcorn } from './helper';
 import { MememberPath, parseExprMemberNode } from './parseExprMemberNode';
 import { TemplateVisitor } from './visitor';
-import { VM } from './common';
 
 type P = {
   vm: string;
@@ -15,159 +13,55 @@ const addPath = (p: P, wps: P[]) => {
   if (!wps.find((ep) => ep.vm === p.vm && ep.n === p.n)) wps.push(p);
 };
 
-function replaceExpr(nodeExpr: CallExpression, root: Identifier, props: MememberPath[]) {
-  if (props.length <= 1) return;
-
-  /*
-   * convert member expression to optional chain expression:
-   *   a.b.c["d"].e ===>  a?.b?.c?.["d"]?.e
-   * TODO: use browser optional chain when acorn supported.
-   *   https://github.com/acornjs/acorn/pull/891
-   */
-
-  const _decl = {
-    type: 'VariableDeclaration',
-    declarations: new Array(props.length - 1).fill(0).map((n, i) => ({
-      type: 'VariableDeclarator',
-      id: { type: 'Identifier', name: `_${i}` },
-      init: null,
-    })),
-    kind: 'let',
-  };
-  let tmp: ConditionalExpression | Identifier;
-  props.forEach((p, i) => {
-    if (i === 0) {
-      tmp = {
-        type: 'Identifier',
-        name: root.name,
-      };
-      return;
+type MemExp = { type: string; computed: boolean; object: MemExp; property: MemExp } & Node;
+/**
+ * 将 a.b["c"]["d"].e 转成 optional chain 格式，a?.b?.["c"]?.["d"]?.e ，渲染时可以避免报错。
+ */
+function replaceOptionalChain(replaces: ReplaceItem[], memnode: MemExp) {
+  const walk = (mn: MemExp) => {
+    sortedInsert(replaces, {
+      sn: mn.object.end,
+      se: mn.object.end,
+      code: mn.computed ? '?.' : '?',
+    });
+    if (mn.object.type === 'MemberExpression') {
+      walk(mn.object);
     }
-    const isSp = p.type === 'const' && isSimpleProp(p.value);
-    tmp = {
-      type: 'ConditionalExpression',
-      alternate: {
-        type: 'MemberExpression',
-        computed: !isSp,
-        optional: false,
-        object: {
-          type: 'Identifier',
-          name: `_${i - 1}`,
-        },
-        property:
-          isSp || p.type === 'id'
-            ? {
-                type: 'Identifier',
-                name: p.value as string,
-              }
-            : {
-                type: 'Literal',
-                value: p.value as string,
-              },
-      },
-      consequent: {
-        type: 'UnaryExpression',
-        operator: 'void',
-        argument: {
-          type: 'Literal',
-          value: 0,
-          raw: '0',
-        },
-        prefix: true,
-      },
-      test: {
-        type: 'LogicalExpression',
-        operator: '||',
-        left: {
-          type: 'BinaryExpression',
-          operator: '===',
-          left: {
-            type: 'AssignmentExpression',
-            operator: '=',
-            left: {
-              type: 'Identifier',
-              name: `_${i - 1}`,
-            },
-            right: tmp,
-          },
-          right: {
-            type: 'Literal',
-            value: null,
-            raw: 'null',
-          },
-        },
-        right: {
-          type: 'BinaryExpression',
-          operator: '===',
-          left: {
-            type: 'Identifier',
-            name: `_${i - 1}`,
-          },
-          right: {
-            type: 'UnaryExpression',
-            operator: 'void',
-            argument: {
-              type: 'Literal',
-              value: 0,
-              raw: '0',
-            },
-            prefix: true,
-          },
-        },
-      },
-    };
-  });
-  const _rtn = {
-    type: 'ReturnStatement',
-    argument: tmp,
   };
-  nodeExpr.type = 'CallExpression';
-  (nodeExpr as CallExpression).callee = {
-    type: 'FunctionExpression',
-    id: null,
-    params: [],
-    body: {
-      type: 'BlockStatement',
-      body: [_decl as Statement, _rtn as Statement],
-    },
-    generator: false,
-    // expression: false,
-    async: false,
-  };
-  nodeExpr.arguments = [];
+  walk(memnode);
 }
-function convert(nodeExpr: Expression, root: Identifier, props: MememberPath[], _vms: VM[], watchPaths: P[]) {
-  const varName = root.name;
-  const vmVar = _vms.find((v) => v.name === varName);
+function convert(_visitor: TemplateVisitor, node: Identifier & Node, props?: MememberPath[]) {
+  const vmVar = _visitor._vms.find((v) => v.name === node.name);
   const level = vmVar ? vmVar.level : 0;
-  root.name = `vm_${level}.${vmVar ? vmVar.reflect : varName}`;
-
-  replaceExpr(nodeExpr as CallExpression, root, props);
-
-  if (vmVar) {
-    props[0].value = vmVar.reflect;
-  }
-  addPath(
-    {
+  const pn = props?.map((p) => p.value) || [node.name];
+  if (vmVar) pn[0] = vmVar.reflect;
+  return {
+    code: `vm_${level}.${vmVar ? vmVar.reflect : node.name}`,
+    path: {
       vm: `vm_${level}`,
-      n: JSON.stringify(props.map((p) => p.value)),
+      n: JSON.stringify(pn),
     },
-    watchPaths,
-  );
+  };
 }
-
+interface Rep {
+  sn: number;
+  se: number;
+  code: string;
+}
 export function parseExprNode(
   _visitor: TemplateVisitor,
   info: {
     startLine: number;
     vars: string[];
+    source: string;
   },
-  expr: Expression,
+  expr: Expression & Node,
   levelPath: string[],
 ) {
-  const computedMemberExprs: ReturnType<typeof parseExprMemberNode>[] = [];
+  const computedMemberExprs: (ReturnType<typeof parseExprMemberNode> & { expr: MemberExpression & Node })[] = [];
   const watchPaths: P[] = [];
-  let meetId: boolean;
+  const replaces: Rep[] = [];
+  let isConst = true;
   walkAcorn(expr as unknown as Node, {
     CallExpression: (node: CallExpression) => {
       _visitor._throwParseError(
@@ -178,62 +72,76 @@ export function parseExprNode(
         'Function call is not allowed in expression',
       );
     },
-    Identifier: (node: Identifier) => {
-      meetId = true;
+    Identifier: (node: Identifier & Node) => {
+      let code;
       if (_visitor._imports.styles.has(node.name)) {
-        node.name += IMPORT_POSTFIX;
-        return false;
+        code = node.name + IMPORT_POSTFIX;
+      } else {
+        const res = convert(_visitor, node);
+        code = res.code;
+        addPath(res.path, watchPaths);
+        isConst = false;
       }
-      convert(
-        node,
-        node,
-        [
-          {
-            type: 'const',
-            value: node.name,
-          },
-        ],
-        _visitor._vms,
-        watchPaths,
-      );
+      sortedInsert(replaces, {
+        sn: node.start,
+        se: node.end,
+        code,
+      });
       return false;
     },
-    MemberExpression: (node: MemberExpression) => {
-      meetId = true;
-      const mn = parseExprMemberNode(_visitor, node, info.startLine);
+    MemberExpression: (memnode: MemberExpression & Node) => {
+      const mn = parseExprMemberNode(_visitor, memnode, info.startLine);
       if (_visitor._imports.styles.has(mn.root.name)) {
-        mn.root.name += IMPORT_POSTFIX;
+        // mn.root.name += IMPORT_POSTFIX;
+        sortedInsert(replaces, { sn: mn.root.start, se: mn.root.end, code: mn.root.name + IMPORT_POSTFIX });
         return false;
       }
+      isConst = false;
       if (mn.computed < 1) {
-        convert(mn.memExpr, mn.root, mn.paths, _visitor._vms, watchPaths);
+        const res = convert(_visitor, mn.root, mn.paths);
+        sortedInsert(replaces, {
+          sn: mn.root.start,
+          se: mn.root.end,
+          code: res.code,
+        });
+        replaceOptionalChain(replaces, memnode as unknown as MemExp);
+        addPath(res.path, watchPaths);
       } else {
-        computedMemberExprs.push(mn);
+        computedMemberExprs.push({
+          ...mn,
+          expr: memnode,
+        });
       }
       return false;
     },
   });
 
-  if (!meetId) {
+  if (isConst) {
     // 如果没有 Identifier 或者 MemberExpression，说明是常量表达式。
-    const code = generate(expr);
-    const res = new Function('return ' + code)();
+    // 此外，对于 module css 表达式也作为常量处理。
+    let code = getReplaceResult(replaces, info.source, expr).trim();
+    if (code.startsWith('{') || code.startsWith('[')) {
+      code = `vm${SYMBOL_POSTFIX}(${code})`;
+    }
     return {
       isConst: true,
-      codes: [JSON.stringify(res)],
+      codes: [code],
     };
   }
+
+  // const exprCode = generate(expr);
   const levelId = levelPath.join('_');
   const parentLevelId = levelPath.slice(0, levelPath.length - 1).join('_');
 
   if (computedMemberExprs.length === 0) {
+    const exprCode = getReplaceResult(replaces, info.source, expr);
     if (levelPath.length === 1) {
       const needWrapViewModel = expr.type === 'ObjectExpression' || expr.type === 'ArrayExpression';
       const codes = [
         '',
-        `const fn_$ROOT_INDEX$ = () => {\n  $RENDER_START$${needWrapViewModel ? `vm${SYMBOL_POSTFIX}(` : ''}${generate(
-          expr,
-        )}${needWrapViewModel ? ')' : ''}$RENDER_END$\n};`,
+        `const fn_$ROOT_INDEX$ = () => {\n  $RENDER_START$${
+          needWrapViewModel ? `vm${SYMBOL_POSTFIX}(` : ''
+        }${exprCode}${needWrapViewModel ? ')' : ''}$RENDER_END$\n};`,
         'fn_$ROOT_INDEX$();',
         '',
         `${watchPaths
@@ -248,13 +156,13 @@ export function parseExprNode(
       const codes = [
         `let _${levelId};`,
         `function _calc_${levelId}() {
-_${levelId} = ${generate(expr)};
+  _${levelId} = ${exprCode};
 }`,
         `_calc_${levelId}();`,
         `function _update_${levelId}() {
-_calc_${levelId}();
-_notify_${parentLevelId}();
-_update_${parentLevelId}();
+  _calc_${levelId}();
+  _notify_${parentLevelId}();
+  _update_${parentLevelId}();
 }`,
         `${watchPaths
           .map((p) => `${p.vm}[$$${SYMBOL_POSTFIX}].__watch(${p.n}, _update_${levelId}, $REL_COM$);`)
@@ -271,10 +179,12 @@ _update_${parentLevelId}();
     const initCodes: string[] = [];
     const updateCodes: string[] = [];
     const watchCodes: string[] = [];
+
     computedMemberExprs.forEach((cm, i) => {
       const lv = levelPath.slice().concat([i.toString()]);
       const lv_id = lv.join('_');
       const __p = [];
+      const repls: ReplaceItem[] = [];
       let __si = 0;
       assignCodes.push(`let _${lv_id};\nlet _${lv_id}_p;`);
       cm.paths.forEach((cmp, pidx) => {
@@ -286,63 +196,73 @@ _update_${parentLevelId}();
           throw new Error('unexpected');
         }
         const llv = lv.slice().concat([(__si++).toString()]);
-        const res = parseExprNode(_visitor, info, (cmp.value as MemberExpression).property as Identifier, llv);
+        const res = parseExprNode(_visitor, info, (cmp.value as MemberExpression).property as Expression & Node, llv);
         const [_ac, _cc, _ic, _uc, _wc] = res.codes;
         _ac && assignCodes.push(_ac);
         _cc && calcCodes.push(_cc);
         _ic && initCodes.push(_ic);
         _uc && updateCodes.unshift(_uc);
         _wc && watchCodes.push(_wc);
-        (cmp.value as MemberExpression).property = {
-          type: 'Identifier',
-          name: `_${llv.join('_')}`,
-        };
-        __p.push(((cmp.value as MemberExpression).property as Identifier).name);
+        const iname = `_${llv.join('_')}`;
+        const pn = (cmp.value as MemberExpression).property as Node;
+        sortedInsert(repls, {
+          sn: pn.start,
+          se: pn.end,
+          code: iname,
+        });
+        __p.push(iname);
         cm.paths[pidx] = {
           type: 'id',
-          value: ((cmp.value as MemberExpression).property as Identifier).name,
+          value: iname,
         };
       });
       const vmVar = _visitor._vms.find((v) => v.name === cm.root.name);
       const level = vmVar ? vmVar.level : 0;
-      cm.root.name = `vm_${level}.${vmVar ? vmVar.reflect : cm.root.name}`;
+      sortedInsert(repls, {
+        sn: cm.root.start,
+        se: cm.root.end,
+        code: `vm_${level}.${vmVar ? vmVar.reflect : cm.root.name}`,
+      });
       if (vmVar) {
         __p[0] = `'${vmVar.reflect}'`;
       }
-      replaceExpr(cm.memExpr as unknown as CallExpression, cm.root, cm.paths);
+      replaceOptionalChain(repls, cm.expr as unknown as MemExp);
       calcCodes.push(`function _calc_${lv_id}() {
-_${lv_id} = ${generate(cm.memExpr)};
+  _${lv_id} = ${getReplaceResult(repls, info.source, cm.expr)};
 }`);
       updateCodes.unshift(`function _update_${lv_id}() {
-_calc_${lv_id}();
-_update_${levelId}();
+  _calc_${lv_id}();
+  _update_${levelId}();
 }
 function _notify_${lv_id}() {
-const _np = [${__p.join(', ')}];
-const _eq = _${lv_id}_p && arrayEqual${SYMBOL_POSTFIX}(_${lv_id}_p, _np);
-if (_${lv_id}_p && !_eq) {
-  vm_${level}[$$${SYMBOL_POSTFIX}].__unwatch(_${lv_id}_p, _update_${lv_id}, $REL_COM$);
-}
-if (!_${lv_id}_p || !_eq) {
-  _${lv_id}_p = _np;
-  vm_${level}[$$${SYMBOL_POSTFIX}].__watch(_${lv_id}_p, _update_${lv_id}, $REL_COM$);
-}
+  const _np = [${__p.join(', ')}];
+  const _eq = _${lv_id}_p && arrayEqual${SYMBOL_POSTFIX}(_${lv_id}_p, _np);
+  if (_${lv_id}_p && !_eq) {
+    vm_${level}[$$${SYMBOL_POSTFIX}].__unwatch(_${lv_id}_p, _update_${lv_id}, $REL_COM$);
+  }
+  if (!_${lv_id}_p || !_eq) {
+    _${lv_id}_p = _np;
+    vm_${level}[$$${SYMBOL_POSTFIX}].__watch(_${lv_id}_p, _update_${lv_id}, $REL_COM$);
+  }
 }`);
       initCodes.push(`_calc_${lv_id}();`);
       watchCodes.push(`_notify_${lv_id}();`);
-      (cm.memExpr as unknown as Identifier).type = 'Identifier';
-      (cm.memExpr as unknown as Identifier).name = `_${lv_id}`;
+      sortedInsert(replaces, {
+        sn: cm.expr.start,
+        se: cm.expr.end,
+        code: `_${lv_id}`,
+      });
     });
 
     if (levelPath.length === 1) {
       const needWrapViewModel = expr.type === 'ObjectExpression' || expr.type === 'ArrayExpression';
       calcCodes.push(`function _calc_${levelId}() {
-$RENDER_START$${needWrapViewModel ? `vm${SYMBOL_POSTFIX}(` : ''}${generate(expr)}${
+  $RENDER_START$${needWrapViewModel ? `vm${SYMBOL_POSTFIX}(` : ''}${getReplaceResult(replaces, info.source, expr)}${
         needWrapViewModel ? ')' : ''
       }$RENDER_END$
 }`);
       initCodes.push(`_calc_${levelId}();`);
-      updateCodes.unshift(`function _update_${levelId}() { _calc_${levelId}(); }`);
+      updateCodes.unshift(`function _update_${levelId}() {\n  _calc_${levelId}();\n}`);
       watchCodes.push(
         `${watchPaths
           .map((p) => `${p.vm}[$$${SYMBOL_POSTFIX}].__watch(${p.n}, _calc_${levelId}, $REL_COM$);`)
@@ -350,11 +270,11 @@ $RENDER_START$${needWrapViewModel ? `vm${SYMBOL_POSTFIX}(` : ''}${generate(expr)
       );
     } else {
       calcCodes.push(`function _calc_${levelId}() {
-_${levelId} = ${generate(expr)};
+  _${levelId} = ${getReplaceResult(replaces, info.source, expr)};
 }`);
       updateCodes.unshift(`function _update_${levelId}() {
-_calc_${levelId}();
-_notify_${parentLevelId}();
+  _calc_${levelId}();
+  _notify_${parentLevelId}();
 }`);
       initCodes.push(`_calc_${levelId}();`);
       watchCodes.push(

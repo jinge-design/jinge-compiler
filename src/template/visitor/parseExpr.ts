@@ -1,4 +1,5 @@
-import { ExpressionStatement } from 'estree';
+import { Node } from 'acorn';
+import { Expression, ExpressionStatement } from 'estree';
 import { Position } from './common';
 import { parseExprNode } from './parseExprNode';
 import { TemplateVisitor } from './visitor';
@@ -42,6 +43,7 @@ export function parseExpr(_visitor: TemplateVisitor, txt: string, position: Posi
   const info = {
     startLine: position.line,
     vars: [] as string[],
+    source: txt,
   };
-  return parseExprNode(_visitor, info, expr, ['$ROOT_INDEX$']);
+  return parseExprNode(_visitor, info, expr as Expression & Node, ['$ROOT_INDEX$']);
 }

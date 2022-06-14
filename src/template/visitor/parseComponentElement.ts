@@ -71,7 +71,7 @@ export function parseComponentElement(
   result.argAttrs.length > 0 && attrs.push(...result.argAttrs.map((at) => `${convertAttributeName(at.name)}: null`));
   // result.translateAttrs.length > 0 && attrs.push(...result.translateAttrs.map((at) => `${at[0]}: null`));
   result.constAttrs.length > 0 &&
-    attrs.push(...result.constAttrs.map((at) => `${convertAttributeName(at.name)}: ${at.code}}`));
+    attrs.push(...result.constAttrs.map((at) => `${convertAttributeName(at.name)}: ${at.code}`));
 
   const vmAttrs = `const attrs = attrs${SYMBOL_POSTFIX}({
   [__${SYMBOL_POSTFIX}]: {
@@ -79,14 +79,20 @@ ${_visitor._addDebugName ? `    debugName: "attrs_of_<${tag}>",` : ''}
 ${prependTab2Space(`  context: component[__${SYMBOL_POSTFIX}].context,`)}
 ${
   result.listeners.length > 0
-    ? prependTab2Space(`  listeners: {
-${result.listeners.map(
-  (lt) =>
-    `    ${convertAttributeName(lt.name)}: { fn: function(...args) { ${lt.code} }, opts: ${
-      lt.tag ? `${JSON.stringify(lt.tag)}` : 'null'
-    } }`,
+    ? prependTab(
+        `listeners: {
+${result.listeners.map((lt) =>
+  prependTab2Space(`${convertAttributeName(lt.name)}: {
+  fn: function(...args) {
+${prependTab(lt.code, false, 4)}
+  },
+  opts: ${lt.tag ? `${JSON.stringify(lt.tag)}` : 'null'}
+}`),
 )}
-},`)
+},`,
+        false,
+        4,
+      )
     : ''
 }
 ${

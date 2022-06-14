@@ -88,9 +88,11 @@ ${
 }
 ${result.listeners
   .map((lt) => {
-    return `addEvent${SYMBOL_POSTFIX}(el, '${lt.name}', function(...args) {${lt.code}${
-      lt.tag?.stop ? ';args[0].stopPropagation()' : ''
-    }${lt.tag?.prevent ? ';args[0].preventDefault()' : ''}}${lt.tag ? `, ${JSON.stringify(lt.tag)}` : ''})`;
+    return `addEvent${SYMBOL_POSTFIX}(el, '${lt.name}', function(...args) {
+${prependTab2Space(lt.code)}${lt.tag?.stop ? '\n  args[0].stopPropagation();' : ''}${
+      lt.tag?.prevent ? '\n  args[0].preventDefault();' : ''
+    }
+}${lt.tag ? `, ${JSON.stringify(lt.tag)}` : ''});`;
   })
   .join('\n')}
 ${setRefCode}

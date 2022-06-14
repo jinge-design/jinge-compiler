@@ -1,9 +1,9 @@
 import path from 'path';
 import fs from 'fs';
 
-export const SYMBOL_POSTFIX = '_b3e32ac12612c8319900402';
-export const IMPORT_POSTFIX = '_b3e32ac12612c8319900801';
-export const ALIAS_POSTFIX = '_b3e32ac12612c8320180712';
+export const SYMBOL_POSTFIX = '_jg0402';
+export const IMPORT_POSTFIX = '_jg0801';
+export const ALIAS_POSTFIX = '_jg0812';
 
 export function isString(v: unknown): v is string {
   return typeof v === 'string';
@@ -124,4 +124,68 @@ export function deepClone<T>(obj: T): T {
   } else {
     return obj;
   }
+}
+
+export function sortedInsert<T extends { sn: number }>(arr: T[], el: T) {
+  let high = arr.length;
+  if (high === 0 || arr[high - 1].sn <= el.sn) {
+    arr.push(el);
+    return;
+  }
+  let low = 0;
+  if (arr[low].sn > el.sn) {
+    arr.unshift(el);
+    return;
+  }
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if (arr[mid].sn < el.sn) low = mid + 1;
+    else high = mid;
+  }
+  arr.splice(low, 0, el);
+}
+
+export function sortedIndexOf<T extends { sn: number }>(arr: T[], sn: T | number) {
+  sn = typeof sn === 'number' ? sn : sn.sn;
+  let high = arr.length;
+  if (high === 0) {
+    return -1;
+  }
+  let low = 0;
+  if (arr[low].sn > sn) {
+    return -1;
+  }
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    const a = arr[mid].sn;
+    if (a === sn) return mid;
+    else if (a < sn) low = mid + 1;
+    else high = mid;
+  }
+  return -1;
+}
+
+export interface ReplaceItem {
+  sn: number;
+  se: number;
+  code: string;
+}
+export function getReplaceResult(replaces: ReplaceItem[], source: string, range?: { start: number; end: number }) {
+  if (replaces.length === 0) {
+    return range ? source.substring(range.start, range.end) : source;
+  }
+  if (!range) range = { start: 0, end: source.length };
+  let output = '';
+  let idx = range.start;
+  replaces.forEach((rep) => {
+    if (rep.sn > idx) {
+      output += source.substring(idx, rep.sn);
+    }
+    output += rep.code;
+    idx = rep.se;
+  });
+  if (idx < range.end) {
+    output += source.substring(idx, range.end);
+  }
+  return output;
 }

@@ -1,5 +1,6 @@
 import { Node, Parser, Comment } from 'acorn';
 import { RawSourceMap } from 'source-map';
+import { base as BaseAcornVisitor } from 'acorn-walk';
 import {
   BlockStatement,
   ClassDeclaration,
@@ -14,9 +15,16 @@ import {
   ThisExpression,
 } from 'estree';
 
-import { isString, isArray, arrayIsEqual, SYMBOL_POSTFIX } from '../util';
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const AcornWalk = require('acorn-walk');
+import {
+  isString,
+  isArray,
+  arrayIsEqual,
+  SYMBOL_POSTFIX,
+  sortedInsert,
+  sortedIndexOf,
+  ReplaceItem,
+  getReplaceResult,
+} from '../util';
 
 /** 取 symbol 的前 4 位 "_b3e"，替换 this 关键字，保证不影响 sourcemap。有潜在的风险是代码里碰巧也声明了 _b3e 这个变量。 */
 const VM_THIS = SYMBOL_POSTFIX.slice(0, 4);
@@ -38,17 +46,16 @@ export class ComponentParser {
 
   resourcePath: string;
   source: string;
-  _inserts: Map<number, string>;
+  _inserts: ReplaceItem[];
   _innerLib: boolean;
 
   constructor(options: ComponentParseOptions) {
     this.resourcePath = options.resourcePath;
     this._innerLib = options._innerLib;
-    this._inserts = new Map();
+    this._inserts = [];
   }
 
   _walkAcorn(node: { type: string }, visitors: Record<string, (...args: unknown[]) => void | boolean>) {
-    const baseVisitor = AcornWalk.base;
     (function c(node, state?: unknown, override?: string) {
       const found = visitors[node.type] || (override ? visitors[override] : null);
       let stopVisit = false;
@@ -56,7 +63,7 @@ export class ComponentParser {
         if (found(node, state) === false) stopVisit = true;
       }
       if (!stopVisit) {
-        baseVisitor[override || node.type](node as Node, state, c);
+        BaseAcornVisitor[override || node.type](node as Node, state, c);
       }
     })(node);
   }
@@ -184,9 +191,7 @@ export class ComponentParser {
           }
           // stmt.end === expr.end 说明 super() 调用后面没有加分号
           const code = `${stmt.end === expr.end ? ';' : ''}const ${VM_THIS} = this[$$${SYMBOL_POSTFIX}].proxy;`;
-          if (this._inserts.has(stmt.end)) debugger;
-          // console.log(stmt.end, code);
-          this._inserts.set(stmt.end, code);
+          sortedInsert(this._inserts, { sn: stmt.end, se: stmt.end, code });
         } else {
           replaceThis(stmt);
         }
@@ -235,13 +240,15 @@ export class ComponentParser {
             // 要求 this.xx = attrs.xx 的赋值语句的前后都是空格，独占一行。
             throw new Error('this assign expression line must starts and ends with spaces.');
           }
-          let fnCode = `const f${stmtIdx}${SYMBOL_POSTFIX} = () => {`;
+          const fnCode = `const f${stmtIdx}${SYMBOL_POSTFIX} = () => {`;
 
-          if (this._inserts.has(preStmt.end)) {
+          const idx = sortedIndexOf(this._inserts, preStmt.end);
+          if (idx >= 0) {
             // 如果目标的插入位置已经有数据了，则把新插入的放在原来的数据后面。
-            fnCode = this._inserts.get(preStmt.end) + fnCode;
+            this._inserts[idx].code += fnCode;
+          } else {
+            sortedInsert(this._inserts, { sn: preStmt.end, se: preStmt.end, code: fnCode });
           }
-          this._inserts.set(preStmt.end, fnCode);
 
           const code =
             stmt.end === expr.end
@@ -255,7 +262,7 @@ export class ComponentParser {
                       `${an}[$$${SYMBOL_POSTFIX}].__watch(${JSON.stringify(prop)}, f${stmtIdx}${SYMBOL_POSTFIX});`, // 监控到变化时重新执行赋值函数
                   )
                   .join('')}`;
-          this._inserts.set(stmt.end, code);
+          sortedInsert(this._inserts, { sn: stmt.end, se: stmt.end, code });
         } else {
           replaceThis(stmt);
         }
@@ -292,24 +299,9 @@ export class ComponentParser {
       },
     });
 
-    if (this._inserts.size > 0) {
-      let output = '';
-      let idx = 0;
-      Array.from(this._inserts.keys())
-        .sort((a, b) => (a > b ? 1 : a < b ? -1 : 0))
-        .forEach((pos) => {
-          if (pos > idx) {
-            output += this.source.substring(idx, pos);
-          }
-          output += this._inserts.get(pos);
-          idx = pos;
-        });
-      if (idx < this.source.length) {
-        output += this.source.substring(idx);
-      }
-      this.source = output;
-    }
+    this.source = getReplaceResult(this._inserts, this.source);
 
+    // this.source === code 说明没有任何变更，也就是没有找到需要处理的组件类。
     if (this.source !== code) {
       // 在文件头部插入依赖。注意不要插入 \n，保证不影响后续的行数。
       this.source =
