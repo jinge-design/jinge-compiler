@@ -1,7 +1,7 @@
 import { Node } from 'acorn';
 import { CallExpression, Expression, Identifier, MemberExpression } from 'estree';
 import { getReplaceResult, IMPORT_POSTFIX, ReplaceItem, sortedInsert, SYMBOL_POSTFIX } from '../../util';
-import { walkAcorn } from './helper';
+import { logParseError, walkAcorn } from './helper';
 import { MememberPath, parseExprMemberNode } from './parseExprMemberNode';
 import { TemplateVisitor } from './visitor';
 
@@ -64,7 +64,8 @@ export function parseExprNode(
   let isConst = true;
   walkAcorn(expr as unknown as Node, {
     CallExpression: (node: CallExpression) => {
-      _visitor._throwParseError(
+      throw logParseError(
+        _visitor,
         {
           line: info.startLine + node.loc.start.line - 1,
           column: node.loc.start.column,

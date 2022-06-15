@@ -1,6 +1,7 @@
 import { Node } from 'acorn';
 import { Expression, ExpressionStatement } from 'estree';
 import { Position } from './common';
+import { logParseError } from './helper';
 import { parseExprNode } from './parseExprNode';
 import { TemplateVisitor } from './visitor';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -25,20 +26,20 @@ export function parseExpr(_visitor: TemplateVisitor, txt: string, position: Posi
   try {
     expr = acorn.Parser.parse(txt, {
       locations: true,
-      ecmaVersion: 2020,
+      ecmaVersion: 'latest',
     }) as unknown as { body: ExpressionStatement[] };
   } catch (ex) {
-    _visitor._throwParseError(position, 'expression grammar error.');
+    logParseError(_visitor, position, 'expression grammar error.');
   }
   if (expr.body.length > 1 || expr.body[0].type !== 'ExpressionStatement') {
-    _visitor._throwParseError(position, 'expression only support single ExpressionStatement. see https://[todo].');
+    logParseError(_visitor, position, 'expression only support single ExpressionStatement. see https://[todo].');
   }
   expr = expr.body[0].expression;
   if (mayBeObject && expr.type !== 'ObjectExpression') {
-    _visitor._throwParseError(position, 'expression startsWith "{" must be ObjectExpression. see https://[todo].');
+    logParseError(_visitor, position, 'expression startsWith "{" must be ObjectExpression. see https://[todo].');
   }
   if (mayBeArray && expr.type !== 'ArrayExpression') {
-    _visitor._throwParseError(position, 'expression startsWith "[" must be ArrayExpression. see https://[todo].');
+    logParseError(_visitor, position, 'expression startsWith "[" must be ArrayExpression. see https://[todo].');
   }
   const info = {
     startLine: position.line,

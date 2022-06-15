@@ -1,22 +1,25 @@
+import path from 'path';
 import { Node } from 'acorn';
+import { base as AcornWalkBase } from 'acorn-walk';
 import { prependTab, SYMBOL_POSTFIX } from '../../util';
 import { TemplateVisitor } from './visitor';
 import { Position } from './common';
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const AcornWalk = require('acorn-walk');
 
-export function logParseError(_visitor: TemplateVisitor, tokenPosition: Position, msg: string, type = 'Error') {
+export function logParseError(_visitor: TemplateVisitor, tokenPosition: Position, msg: string) {
   let idx = -1;
   for (let i = 0; i < tokenPosition.line - 1; i++) {
     idx = _visitor._source.indexOf('\n', idx + 1);
   }
   idx = idx + 1;
   const eidx = _visitor._source.indexOf('\n', idx);
+  const srcline = _visitor._source.substring(idx, eidx > idx ? eidx : _visitor._source.length);
+  const trimSrcline = srcline.trimStart();
+  const spc = tokenPosition.column - 1 - (srcline.length - trimSrcline.length);
   _visitor._emitErrorFn(
-    new Error(`${type} occur at line ${tokenPosition.line}, column ${tokenPosition.column}:
-> ${_visitor._source.substring(idx, eidx > idx ? eidx : _visitor._source.length)}
-> ${_visitor._resourcePath}
-> ${msg}`),
+    new Error(`${msg}
+  > ${path.relative(process.cwd(), _visitor._resourcePath)}, Ln ${tokenPosition.line}, Col ${tokenPosition.column}
+  > ${trimSrcline}
+    ${new Array(spc).fill(' ').join('')}^^^`),
   );
 }
 
@@ -40,7 +43,6 @@ export function replaceTplStr(tpl: string, ctx: Record<string, string>) {
 }
 
 export function walkAcorn(node: Node, visitors: Record<string, (...args: unknown[]) => void | boolean>) {
-  const baseVisitor = AcornWalk.base;
   (function c(node, st?: unknown, override?: string) {
     const found = visitors[node.type] || (override ? visitors[override] : null);
     let stopVisit = false;
@@ -48,7 +50,7 @@ export function walkAcorn(node: Node, visitors: Record<string, (...args: unknown
       if (found(node, st) === false) stopVisit = true;
     }
     if (!stopVisit) {
-      baseVisitor[override || node.type](node, st, c);
+      AcornWalkBase[override || node.type](node, st, c);
     }
   })(node);
 }

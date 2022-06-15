@@ -1,5 +1,7 @@
 import { Node } from 'acorn';
 import { Expression, Identifier, MemberExpression } from 'estree';
+import { Position } from './common';
+import { logParseError } from './helper';
 import { TemplateVisitor } from './visitor';
 
 export type MememberPath =
@@ -15,6 +17,15 @@ export function parseExprMemberNode(_visitor: TemplateVisitor, memExpr: MemberEx
   const paths: MememberPath[] = [];
   let computed = -1; // -1: no computed, 0: only have Literal computed, 1: member expression computed
   let root: Identifier & Node = null;
+  const unsupport = (loc: Position) =>
+    logParseError(
+      _visitor,
+      {
+        line: startLine + loc.line - 1,
+        column: loc.column,
+      },
+      'expression not support. see https://[todo]',
+    );
   const walk = (node: MemberExpression & Node) => {
     const objectExpr = node.object as Expression & Node;
     const propertyExpr = node.property as Expression & Node;
@@ -35,7 +46,7 @@ export function parseExprMemberNode(_visitor: TemplateVisitor, memExpr: MemberEx
       }
     } else {
       if (propertyExpr.type !== 'Identifier') {
-        throw node.loc.start;
+        throw unsupport(node.loc.start);
       } else {
         paths.unshift({
           type: 'const',
@@ -51,24 +62,15 @@ export function parseExprMemberNode(_visitor: TemplateVisitor, memExpr: MemberEx
       });
     } else {
       if (objectExpr.type !== 'MemberExpression') {
-        throw node.loc.start;
+        throw unsupport(node.loc.start);
       } else {
         walk(objectExpr);
       }
     }
   };
 
-  try {
-    walk(memExpr);
-  } catch (loc) {
-    _visitor._throwParseError(
-      {
-        line: startLine + loc.line - 1,
-        column: loc.column,
-      },
-      'expression not support. see https://[todo]',
-    );
-  }
+  walk(memExpr);
+
   return {
     root,
     computed,

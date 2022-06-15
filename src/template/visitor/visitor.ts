@@ -60,11 +60,6 @@ export class TemplateVisitor {
     };
   }
 
-  _throwParseError(tokenPosition: Position, msg: string) {
-    logParseError(this, tokenPosition, msg);
-    throw new Error('parsing aborted as error occur.');
-  }
-
   _enter(vms: VM[], info: Parent) {
     this._stack.push({
       vms: this._vms.slice(),
@@ -86,13 +81,15 @@ export class TemplateVisitor {
     elements.forEach((el) => {
       if (el.type === 'component' && el.sub === 'argument') {
         if (found < 0) {
-          this._throwParseError(
+          throw logParseError(
+            this,
             tokenPosition,
             `children of <${Component}> must satisfy the requirement that all of them contain slot-pass: attribute or none of them contain slot-pass: attribute`,
           );
         }
         if (el.argPass in args) {
-          this._throwParseError(
+          throw logParseError(
+            this,
             tokenPosition,
             `slot-pass: attribute name must be unique under <${Component}>, but found duplicate: ${el.argPass}`,
           );
@@ -101,7 +98,8 @@ export class TemplateVisitor {
         found = 1;
       } else {
         if (found > 0) {
-          this._throwParseError(
+          throw logParseError(
+            this,
             tokenPosition,
             `children of <${Component}> must satisfy the requirement that all of them contain slot-pass: attribute or none of them contain slot-pass: attribute`,
           );
@@ -161,7 +159,7 @@ ${body}
     try {
       txt = decode(txt);
     } catch (ex) {
-      this._throwParseError(inode.loc.start, ex.message);
+      logParseError(this, inode.loc.start, ex.message);
     }
     txt = '`' + txt + '`'; // 将文本转成 es6 字符串表达式
     const { isConst, codes } = parseExpr(this, txt, inode.loc.start);
@@ -196,7 +194,8 @@ ${body}
     }
     const etag = inode.rawName;
     if (etag.startsWith('_') /* && etag !== '_t' */ && etag !== '_slot') {
-      this._throwParseError(
+      throw logParseError(
+        this,
         inode.loc.start,
         'html tag starts with "_" is compiler preserved tag name. Current version only support: "<_slot>". see https://todo"',
       );
@@ -213,20 +212,19 @@ ${body}
         return parseComponentElement(this, etag, componentTag, inode);
       }
       if (etag !== 'svg' && this._parent.isSVG && SVGTags.indexOf(etag) < 0) {
-        logParseError(this, inode.loc.start, `${etag} is not known svg tag.`);
+        throw logParseError(this, inode.loc.start, `${etag} is not known svg tag.`);
       }
       if (etag !== 'svg' && !this._parent.isSVG && (HTMLTags as string[]).indexOf(etag) < 0) {
-        logParseError(
+        throw logParseError(
           this,
           inode.loc.start,
           `'${etag}' is not known html tag, do you forgot to config component alias?`,
-          'Warning',
         );
       }
       return parseHtmlElement(this, etag, inode);
     }
     if (!this._imports.components.has(etag)) {
-      this._throwParseError(inode.loc.start, `Component '${etag}' not found. Forgot to import it on the top?`);
+      throw logParseError(this, inode.loc.start, `Component '${etag}' not found. Forgot to import it on the top?`);
     }
     return parseComponentElement(this, etag, etag + IMPORT_POSTFIX, inode);
   }
@@ -241,13 +239,13 @@ ${body}
       tree = Parser.parse(code, {
         locations: true,
         sourceType: 'module',
-        ecmaVersion: 2020,
+        ecmaVersion: 'latest',
       }) as unknown as Program;
     } catch (ex) {
-      this._emitErrorFn(
-        new Error(`Warning: keyword "import" is found in comment, but got error when tring to parse it as js code. see https://[todo]
- > ${ex.message}
- > ${this._resourcePath}`),
+      throw logParseError(
+        this,
+        inode.loc.start,
+        'keyword "import" is found in comment, but got error when tring to parse it as js code.',
       );
       return;
     }
@@ -265,7 +263,8 @@ ${body}
         const local = spec.local.name;
         const isStyle = /\.(css|less|sass|scss)$/.test(src);
         if (!/^[A-Z][a-zA-Z\d]*$/.test(local) && !isStyle) {
-          this._throwParseError(
+          throw logParseError(
+            this,
             {
               line: inode.loc.start.line + spec.loc.start.line - 1,
               column: spec.loc.start.column,
@@ -274,7 +273,8 @@ ${body}
           );
         }
         if (this._imports.components.has(local) || this._imports.styles.has(local)) {
-          this._throwParseError(
+          throw logParseError(
+            this,
             {
               line: inode.loc.start.line + spec.loc.start.line - 1,
               column: spec.loc.start.column,

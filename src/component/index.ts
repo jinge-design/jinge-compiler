@@ -280,7 +280,7 @@ export class ComponentParser {
       tree = Parser.parse(code, {
         ranges: true,
         locations: true,
-        ecmaVersion: 11,
+        ecmaVersion: 'latest',
         sourceType: 'module',
         onComment: comments,
       }) as unknown as Program;

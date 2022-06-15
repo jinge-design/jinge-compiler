@@ -20,7 +20,7 @@ export function parseComponentElement(
    * 而不是抛出错误。
    */
   if (tag === 'for' && !result.vms.find((v) => v.reflect === 'each')) {
-    logParseError(_visitor, inode.loc.start, '<for> component require vm:each attribute.', 'Warning');
+    logParseError(_visitor, inode.loc.start, '<for> component require vm:each attribute.');
   }
   let elements = _visitor.visitChildNodes(inode.body, result.vms, {
     type: 'component',
@@ -28,11 +28,12 @@ export function parseComponentElement(
     vms: result.vms,
   });
   if (tag === '_slot' && elements.length === 0 && result.argPass) {
-    _visitor._throwParseError(inode.loc.start, '<_slot> component with slot-pass: attribute must have child.');
+    throw logParseError(_visitor, inode.loc.start, '<_slot> component with slot-pass: attribute must have child.');
   }
   const hasArg = _visitor._assert_arg_pass(inode.loc.start, elements, tag);
   if (result.vms.length > 0 && !result.argPass && hasArg) {
-    _visitor._throwParseError(
+    throw logParseError(
+      _visitor,
       inode.loc.start,
       "if component has vm-use: attribute but do not have slot-pass: attribute, it's root children can't have slot-pass: attribute.",
     );
