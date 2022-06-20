@@ -1,4 +1,4 @@
-import HTMLTags from 'html-tags';
+import HTMLTags, { htmlTags } from 'html-tags';
 import SVGTags from 'svg-tags';
 import { decode } from 'html-entities';
 import { ImportDeclaration, Program } from 'estree';
@@ -32,10 +32,7 @@ export class TemplateVisitor {
   _addDebugName: boolean;
   _needHandleComment: boolean;
   _parent: Parent;
-  _imports: {
-    components: Set<string>;
-    styles: Set<string>;
-  };
+  _imports: Set<string>;
   _aliasImports: Record<string, string[]>;
   _importOutputCodes: unknown[];
 
@@ -47,10 +44,7 @@ export class TemplateVisitor {
     this._resourcePath = opts.resourcePath;
     this._emitErrorFn = opts.emitErrorFn;
     this._addDebugName = opts.addDebugName;
-    this._imports = {
-      components: new Set(),
-      styles: new Set(),
-    };
+    this._imports = new Set();
     this._importOutputCodes = [];
     this._aliasImports = {};
     this._needHandleComment = true;
@@ -223,7 +217,7 @@ ${body}
       }
       return parseHtmlElement(this, etag, inode);
     }
-    if (!this._imports.components.has(etag)) {
+    if (!this._imports.has(etag)) {
       throw logParseError(this, inode.loc.start, `Component '${etag}' not found. Forgot to import it on the top?`);
     }
     return parseComponentElement(this, etag, etag + IMPORT_POSTFIX, inode);
@@ -261,29 +255,18 @@ ${body}
           throw new Error('unsupport import type'); // 暂不支持 import * as X from 的写法。
         }
         const local = spec.local.name;
-        const isStyle = /\.(css|less|sass|scss)$/.test(src);
-        if (!/^[A-Z][a-zA-Z\d]*$/.test(local) && !isStyle) {
+        if (HTMLTags.includes(local as htmlTags) || SVGTags.includes(local)) {
           throw logParseError(
             this,
             {
               line: inode.loc.start.line + spec.loc.start.line - 1,
               column: spec.loc.start.column,
             },
-            'Imported component name must match /^[A-Z][a-zA-Z\\d]+$/，but got: ' + local,
+            'Imported variable name can not be html or svg tag:' + local,
           );
         }
-        if (this._imports.components.has(local) || this._imports.styles.has(local)) {
-          throw logParseError(
-            this,
-            {
-              line: inode.loc.start.line + spec.loc.start.line - 1,
-              column: spec.loc.start.column,
-            },
-            'Dulplicate imported : ' + local,
-          );
-        }
-        const imps = isStyle ? this._imports.styles : this._imports.components;
-        imps.add(local);
+
+        this._imports.add(local);
         importCode += `${spec.type === 'ImportDefaultSpecifier' ? 'default' : spec.imported.name} as ${
           local + IMPORT_POSTFIX
         }`;

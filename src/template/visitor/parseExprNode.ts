@@ -75,7 +75,7 @@ export function parseExprNode(
     },
     Identifier: (node: Identifier & Node) => {
       let code;
-      if (_visitor._imports.styles.has(node.name)) {
+      if (_visitor._imports.has(node.name)) {
         code = node.name + IMPORT_POSTFIX;
       } else {
         const res = convert(_visitor, node);
@@ -92,7 +92,7 @@ export function parseExprNode(
     },
     MemberExpression: (memnode: MemberExpression & Node) => {
       const mn = parseExprMemberNode(_visitor, memnode, info.startLine);
-      if (_visitor._imports.styles.has(mn.root.name)) {
+      if (_visitor._imports.has(mn.root.name)) {
         // mn.root.name += IMPORT_POSTFIX;
         sortedInsert(replaces, { sn: mn.root.start, se: mn.root.end, code: mn.root.name + IMPORT_POSTFIX });
         return false;

@@ -20,3 +20,15 @@ export const JingeTemplateRule = {
  * .html 结尾的文件，使用 JingeTemplateLoader 处理。
  **/
 export const JingeRules = [JingeComponentRule, JingeTemplateRule];
+
+export function getJingeTemplateRuleWithAlias(alias: unknown) {
+  return {
+    test: JingeTemplateRule.test,
+    use: {
+      loader: JingeTemplateRule.use,
+      options: {
+        componentAlias: alias,
+      },
+    },
+  };
+}
