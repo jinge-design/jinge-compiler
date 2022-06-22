@@ -250,7 +250,7 @@ ${body}
       }
       const src = node.source.value.toString();
       let importCode = `import { `;
-      node.specifiers.forEach((spec) => {
+      node.specifiers.forEach((spec, i) => {
         if (spec.type === 'ImportNamespaceSpecifier') {
           throw new Error('unsupport import type'); // 暂不支持 import * as X from 的写法。
         }
@@ -269,7 +269,7 @@ ${body}
         this._imports.add(local);
         importCode += `${spec.type === 'ImportDefaultSpecifier' ? 'default' : spec.imported.name} as ${
           local + IMPORT_POSTFIX
-        }`;
+        }${i === node.specifiers.length - 1 ? '' : ', '}`;
       });
       importCode += ` } from '${src}';`;
       imports.push(importCode);

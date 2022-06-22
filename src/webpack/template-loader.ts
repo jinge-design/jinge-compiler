@@ -8,9 +8,6 @@ export interface JingeLoaderOptions {
 
 export default function TemplateLoader(this: LoaderContext<JingeLoaderOptions>, source: string) {
   const callback = this.async();
-  if (this._compiler.parentCompilation) {
-    return callback(null, source);
-  }
 
   aliasManager.initialize((this.query as JingeLoaderOptions)?.componentAlias);
 

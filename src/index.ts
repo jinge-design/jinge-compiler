@@ -1,7 +1,10 @@
 import path from 'path';
 
-export { TemplateParser, TemplateParserOptions } from './template/index';
-export { ComponentParser, ComponentParseOptions } from './component/index';
+export { TemplateParser, TemplateParserOptions } from './template';
+export { ComponentParser, ComponentParseOptions } from './component';
+
+import * as util from './util';
+export { util };
 
 export const JingeComponentLoader = path.resolve(__dirname, './webpack/component-loader');
 export const JingeTemplateLoader = path.resolve(__dirname, './webpack/template-loader');
