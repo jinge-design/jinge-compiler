@@ -35,3 +35,7 @@ export function getJingeTemplateRuleWithAlias(alias: unknown) {
     },
   };
 }
+
+export function getJingeRulesWithAlias(alias: unknown) {
+  return [JingeComponentRule, getJingeTemplateRuleWithAlias(alias)];
+}

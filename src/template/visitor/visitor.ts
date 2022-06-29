@@ -1,4 +1,4 @@
-import HTMLTags, { htmlTags } from 'html-tags';
+import HTMLTags from 'html-tags';
 import SVGTags from 'svg-tags';
 import { decode } from 'html-entities';
 import { ImportDeclaration, Program } from 'estree';
@@ -194,33 +194,30 @@ ${body}
         'html tag starts with "_" is compiler preserved tag name. Current version only support: "<_slot>". see https://todo"',
       );
     }
-
-    // if (etag === '_t') {
-    //   return parseTranslate(this, ctx);
-    // } else
     if (etag === '_slot') {
       return parseComponentElement(this, etag, etag, inode);
-    } else if (/^[a-z\d_-]+$/.test(etag)) {
-      const componentTag = aliasManager.getComponentOfAlias(etag, this._aliasImports);
-      if (componentTag) {
-        return parseComponentElement(this, etag, componentTag, inode);
-      }
-      if (etag !== 'svg' && this._parent.isSVG && SVGTags.indexOf(etag) < 0) {
-        throw logParseError(this, inode.loc.start, `${etag} is not known svg tag.`);
-      }
-      if (etag !== 'svg' && !this._parent.isSVG && (HTMLTags as string[]).indexOf(etag) < 0) {
-        throw logParseError(
-          this,
-          inode.loc.start,
-          `'${etag}' is not known html tag, do you forgot to config component alias?`,
-        );
-      }
-      return parseHtmlElement(this, etag, inode);
     }
-    if (!this._imports.has(etag)) {
-      throw logParseError(this, inode.loc.start, `Component '${etag}' not found. Forgot to import it on the top?`);
+    // 优先看一个 tag 是否是注册的组件别名
+    const componentTag = aliasManager.getComponentOfAlias(etag, this._aliasImports);
+    if (componentTag) {
+      return parseComponentElement(this, etag, componentTag, inode);
     }
-    return parseComponentElement(this, etag, etag + IMPORT_POSTFIX, inode);
+    // 其次看 tag 是否是在顶部 import 的组件变量。
+    if (this._imports.has(etag)) {
+      return parseComponentElement(this, etag, etag + IMPORT_POSTFIX, inode);
+    }
+    // 最后看是否是合法的 html/svg 标签
+    if (this._parent.isSVG && SVGTags.indexOf(etag) < 0) {
+      throw logParseError(this, inode.loc.start, `${etag} is not known svg tag.`);
+    }
+    if (!this._parent.isSVG && (HTMLTags as string[]).indexOf(etag) < 0) {
+      throw logParseError(
+        this,
+        inode.loc.start,
+        `'${etag}' is not known html tag, do you forgot to config component alias or import it on the top?`,
+      );
+    }
+    return parseHtmlElement(this, etag, inode);
   }
 
   visitHtmlComment(inode: IText) {
@@ -255,17 +252,6 @@ ${body}
           throw new Error('unsupport import type'); // 暂不支持 import * as X from 的写法。
         }
         const local = spec.local.name;
-        if (HTMLTags.includes(local as htmlTags) || SVGTags.includes(local)) {
-          throw logParseError(
-            this,
-            {
-              line: inode.loc.start.line + spec.loc.start.line - 1,
-              column: spec.loc.start.column,
-            },
-            'Imported variable name can not be html or svg tag:' + local,
-          );
-        }
-
         this._imports.add(local);
         importCode += `${spec.type === 'ImportDefaultSpecifier' ? 'default' : spec.imported.name} as ${
           local + IMPORT_POSTFIX
