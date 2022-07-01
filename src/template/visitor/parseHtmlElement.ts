@@ -28,7 +28,16 @@ export function parseHtmlElement(_visitor: TemplateVisitor, etag: string, inode:
   const ce = `${ceFn}${SYMBOL_POSTFIX}`;
   const arr = [`"${etag}"`];
   if (result.constAttrs.length > 0) {
-    const attrsArr = result.constAttrs.map((at) => `  ${convertAttributeName(at.name)}: ${at.code}`);
+    const attrsArr = result.constAttrs.map((at) => {
+      let code = at.code;
+      const cors = at.name === 'class' || at.name === 'style';
+      if (cors && /^[{[]/.test(code)) {
+        // 如果是 { 或 [ 打头的常量，则认为是 object 或 array 常量，用 class2str/style2str 转成字符串。
+        code = `${at.name}2str${SYMBOL_POSTFIX}(${code})`;
+      }
+      // 由于此处是为 html 元素设置属性，不需要将 object/array 转成 ViewModel
+      return `  ${convertAttributeName(at.name)}: ${code}`;
+    });
     const attrsCode = `{\n${attrsArr.join(',\n')}\n}`;
     arr.push(attrsCode);
   }
@@ -71,21 +80,18 @@ ${result.argAttrs
         });
       }
     }
+    const cors = at.name === 'class' || at.name === 'style';
+    // 如果是 class 或 style 属性，使用 setClassAttribute/setStyleAttribute，否则使用 setAttribute
     return replaceTpl(at.code, {
       REL_COM: `component[$$${SYMBOL_POSTFIX}]`,
       ROOT_INDEX: i.toString(),
-      RENDER_START: `setAttribute$POSTFIX$(el, "${at.name}", `,
+      RENDER_START: cors
+        ? `set${at.name.replace(/^./, (m) => m.toUpperCase())}Attribute$POSTFIX$(el, `
+        : `setAttribute$POSTFIX$(el, "${at.name}", `,
       RENDER_END: ');',
     });
   })
   .join('\n')}
-${
-  /*result.translateAttrs
-  .map((at, i) => {
-    return parseI18nAttribute(_visitor, at, result.argAttrs.length + i, true);
-  })
-.join('\n')*/ ''
-}
 ${result.listeners
   .map((lt) => {
     return `addEvent${SYMBOL_POSTFIX}(el, '${lt.name}', function(...args) {

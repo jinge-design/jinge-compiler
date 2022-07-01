@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import { Node } from 'acorn';
 import { Expression, ExpressionStatement } from 'estree';
 import { Position } from './common';
@@ -22,9 +23,15 @@ export function parseExpr(_visitor: TemplateVisitor, txt: string, position: Posi
   } else if (txt[0] === '[') {
     mayBeArray = true;
   }
+  /**
+   * class 在 js 中是关键字，不允许做为变量名使用。但在 html 中是允许使用的，因为 html 中的 class 会被转成 vm.class。
+   * 这里先将 class 转成一个几乎不可能冲突的合法变量名，使用 acorn 转换成 vm.class_xxx 后，再将所有 class_xxx 替换回 class
+   */
+  const classSymbol = 'class_' + randomBytes(10).toString('hex');
+  const source = txt.replace(/\bclass\b/g, classSymbol);
   let expr;
   try {
-    expr = acorn.Parser.parse(txt, {
+    expr = acorn.Parser.parse(source, {
       locations: true,
       ecmaVersion: 'latest',
     }) as unknown as { body: ExpressionStatement[] };
@@ -44,7 +51,12 @@ export function parseExpr(_visitor: TemplateVisitor, txt: string, position: Posi
   const info = {
     startLine: position.line,
     vars: [] as string[],
-    source: txt,
+    source,
   };
-  return parseExprNode(_visitor, info, expr as Expression & Node, ['$ROOT_INDEX$']);
+  const res = parseExprNode(_visitor, info, expr as Expression & Node, ['$ROOT_INDEX$']);
+  if (source !== txt) {
+    // source !== txt 说明有 class 被替换，需要替换回来。
+    res.codes = res.codes.map((c) => c.replaceAll(classSymbol, 'class'));
+  }
+  return res;
 }

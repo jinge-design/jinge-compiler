@@ -69,10 +69,23 @@ export function parseComponentElement(
   }
 
   const attrs = [];
-  result.argAttrs.length > 0 && attrs.push(...result.argAttrs.map((at) => `${convertAttributeName(at.name)}: null`));
-  // result.translateAttrs.length > 0 && attrs.push(...result.translateAttrs.map((at) => `${at[0]}: null`));
+  result.argAttrs.length > 0 &&
+    attrs.push(...result.argAttrs.map((at) => `${convertAttributeName(at.name)}: undefined`));
+
   result.constAttrs.length > 0 &&
-    attrs.push(...result.constAttrs.map((at) => `${convertAttributeName(at.name)}: ${at.code}`));
+    attrs.push(
+      ...result.constAttrs.map((at) => {
+        const cors = at.name === 'class' || at.name === 'style';
+        let code = at.code;
+        const isObj = /^[{[]/.test(code);
+        if (cors) {
+          if (isObj) code = `${at.name}2str(${code})`;
+        } else {
+          if (isObj) code = `vm${SYMBOL_POSTFIX}(${code})`;
+        }
+        return `${convertAttributeName(at.name)}: ${code}`;
+      }),
+    );
 
   const vmAttrs = `const attrs = attrs${SYMBOL_POSTFIX}({
   [__${SYMBOL_POSTFIX}]: {
@@ -107,20 +120,16 @@ ${elements.map((el) => prependTab(`'${el.argPass}': ${el.value}`, false, 4)).joi
 ${prependTab2Space(attrs.join(',\n'), true)}
 });
 ${result.argAttrs
-  .map((at, i) =>
-    replaceTpl(at.code, {
+  .map((at, i) => {
+    const cors = at.name === 'class' || at.name === 'style';
+    return replaceTpl(at.code, {
       REL_COM: `component[$$${SYMBOL_POSTFIX}]`,
       ROOT_INDEX: i.toString(),
-      RENDER_START: `attrs.${at.name} = `,
-      RENDER_END: ';',
-    }),
-  )
+      RENDER_START: `attrs.${at.name} = ${cors ? `${at.name}2str${SYMBOL_POSTFIX}(` : ''}`,
+      RENDER_END: `${cors ? ')' : ''};`,
+    });
+  })
   .join('\n')}`;
-  // ${result.translateAttrs
-  //   .map((at, i) => {
-  //     return parseI18nAttribute(_visitor, at, result.argAttrs.length + i, false);
-  //   })
-  //   .join('\n')}`;
 
   const code =
     '...(() => {\n' +

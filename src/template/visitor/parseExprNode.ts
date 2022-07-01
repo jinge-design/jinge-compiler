@@ -120,17 +120,16 @@ export function parseExprNode(
   if (isConst) {
     // 如果没有 Identifier 或者 MemberExpression，说明是常量表达式。
     // 此外，对于 module css 表达式也作为常量处理。
-    let code = getReplaceResult(replaces, info.source, expr).trim();
-    if (code.startsWith('{') || code.startsWith('[')) {
-      code = `vm${SYMBOL_POSTFIX}(${code})`;
-    }
+    const code = getReplaceResult(replaces, info.source, expr).trim();
+    // if (code.startsWith('{') || code.startsWith('[')) {
+    //   code = `vm${SYMBOL_POSTFIX}(${code})`;
+    // }
     return {
       isConst: true,
       codes: [code],
     };
   }
 
-  // const exprCode = generate(expr);
   const levelId = levelPath.join('_');
   const parentLevelId = levelPath.slice(0, levelPath.length - 1).join('_');
 
