@@ -3,7 +3,7 @@
     "module": "commonjs",
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "target": "es2020",
+    "target": "es2022",
     "noImplicitAny": true,
     "noImplicitReturns": true,
     "stripInternal": true,
@@ -15,11 +15,7 @@
     "outDir": "lib",
     "noEmit": true,
     "baseUrl": ".",
-    "paths": {
-      
-    }
+    "paths": {}
   },
-  "include": [
-    "src/**/*"
-  ]
+  "include": ["src/**/*"]
 }

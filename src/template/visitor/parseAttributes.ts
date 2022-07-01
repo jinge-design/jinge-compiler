@@ -1,5 +1,4 @@
 import { IAttribute } from '@jingeweb/html5parser';
-// import { i18nManager } from '../../i18n';
 import { Parent, Position, VM } from './common';
 import { KNOWN_ATTR_TYPES } from './const';
 import { logParseError } from './helper';
@@ -247,10 +246,12 @@ export function parseAttributes(
       aval = '`' + aval + '`';
     }
     const res = parseExpr(_visitor, aval, iattr.value?.loc.start || iattr.loc.start);
+    const code = res.isConst ? res.codes[0] : res.codes.join('\n');
+
     if (res.isConst) {
-      constAttrs[a_name] = res.codes[0];
+      constAttrs[a_name] = code;
     } else {
-      argAttrs[a_name] = res.codes.join('\n');
+      argAttrs[a_name] = code;
     }
   });
 
