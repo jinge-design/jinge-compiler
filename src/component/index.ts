@@ -68,9 +68,9 @@ export class ComponentParser {
     })(node);
   }
 
-  walkClass(node: ClassDeclaration | ClassExpression) {
+  walkClass(node: ClassDeclaration | ClassExpression, force = false) {
     const sc = node.superClass as unknown as { type: string; name: string };
-    if (sc?.type !== 'Identifier' && sc?.name !== 'Component') {
+    if (!force && sc?.name !== 'Component') {
       /* TODO: 支持 Component 有别名的写法 */
       return;
     }
@@ -80,6 +80,7 @@ export class ComponentParser {
       if (mem.type !== 'MethodDefinition') continue;
       if (mem.kind === 'constructor') {
         constructorNode = mem;
+        break;
       }
     }
 
@@ -288,16 +289,33 @@ export class ComponentParser {
       throw new Error(ex.message + ' @ ' + this.resourcePath);
     }
 
-    this._walkAcorn(tree, {
-      ClassExpression: (node: ClassExpression) => {
-        this.walkClass(node);
-        return false;
-      },
-      ClassDeclaration: (node: ClassDeclaration) => {
-        this.walkClass(node);
-        return false;
-      },
-    });
+    // 如果文件中有含有 @jinge-component-ignore 的注释，则忽略当前文件不进行 parse；
+    // 如果文件中有含有 @jinge-component-parse 的注释，则强制对文件中的所有 class 进行 parse。
+    let skip = 0;
+    if (comments.length > 0) {
+      for (let i = 0; i < comments.length; i++) {
+        const cnt = comments[i].value;
+        if (cnt.includes('@jinge-component-ignore')) {
+          skip = -1;
+          break;
+        } else if (cnt.includes('@jinge-component-parse')) {
+          skip = 1;
+          break;
+        }
+      }
+    }
+
+    skip >= 0 &&
+      this._walkAcorn(tree, {
+        // ClassExpression: (node: ClassExpression) => {
+        //   this.walkClass(node, skip === 1);
+        //   return false;
+        // },
+        ClassDeclaration: (node: ClassDeclaration) => {
+          this.walkClass(node, skip === 1);
+          return false;
+        },
+      });
 
     this.source = getReplaceResult(this._inserts, this.source);
 
