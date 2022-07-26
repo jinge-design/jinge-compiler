@@ -10,9 +10,9 @@ function getVarVmReflect(varName: string, _visitor: TemplateVisitor) {
   const level = vmVar ? vmVar.level : 0;
   return `vm_${level}.${vmVar ? vmVar.reflect : varName}`;
 }
-/** $args 和 $event 是保留的两个特殊参数名。$event 会被替换为 args[0]，$args 会被替换为 ...args */
+/** $args 和 $event 是保留的两个特殊参数名。$event 会被替换为 args[0]，$args 会被替换为 args */
 function getVar(name: string, _visitor: TemplateVisitor) {
-  return name === '$args' ? '...args' : name === '$event' ? 'args[0]' : getVarVmReflect(name, _visitor);
+  return name === '$args' ? 'args' : name === '$event' ? 'args[0]' : getVarVmReflect(name, _visitor);
 }
 export function parseListener(_visitor: TemplateVisitor, str: string, tag: Record<string, boolean>, pos: Position) {
   let tree;
