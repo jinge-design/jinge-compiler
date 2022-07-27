@@ -14,6 +14,7 @@ export function parseHtmlElement(_visitor: TemplateVisitor, etag: string, inode:
   const elements = _visitor.visitChildNodes(inode.body, result.vms, {
     type: 'html',
     isSVG: _visitor._parent.isSVG || etag === 'svg',
+    isPreOrCodeTag: etag === 'pre' || etag === 'code',
   });
   const setRefCode = result.ref
     ? replaceTpl(SET_REF_ELE, {

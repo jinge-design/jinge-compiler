@@ -20,4 +20,6 @@ export interface Parent {
   sub?: 'root' | 'argument' | 'parameter' | 'normal';
   vms?: VM[];
   isSVG?: boolean;
+  /** 是否是 <pre> 或 <code> 标签。pre/code 标签内的文本，不需要进行 trim */
+  isPreOrCodeTag?: boolean;
 }

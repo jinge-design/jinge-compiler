@@ -148,7 +148,7 @@ ${body}
   }
 
   visitHtmlTextContent(inode: IText): ParsedElement {
-    let txt = inode.value.trim();
+    let txt = this._parent.isPreOrCodeTag ? inode.value : inode.value.trim();
     if (!txt) return null;
     try {
       txt = decode(txt);
