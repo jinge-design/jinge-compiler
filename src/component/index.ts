@@ -307,10 +307,10 @@ export class ComponentParser {
 
     skip >= 0 &&
       this._walkAcorn(tree, {
-        // ClassExpression: (node: ClassExpression) => {
-        //   this.walkClass(node, skip === 1);
-        //   return false;
-        // },
+        ClassExpression: (node: ClassExpression) => {
+          this.walkClass(node, skip === 1);
+          return false;
+        },
         ClassDeclaration: (node: ClassDeclaration) => {
           this.walkClass(node, skip === 1);
           return false;

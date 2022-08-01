@@ -232,9 +232,6 @@ export function parseAttributes(
       throw logParseError(_visitor, iattr.loc.start, 'dulplicated attribute: ' + a_name);
     }
     if (!aval) {
-      // if (a_category === '_t') {
-      //   logParseError(_visitor,iattr.loc.start, 'attribute with _t: type require non-empty value');
-      // }
       if (a_category === 'expr') {
         throw logParseError(_visitor, iattr.loc.start, 'Attribute with expression type must have value.');
       }
@@ -262,7 +259,7 @@ export function parseAttributes(
 
   /**
    *
-   * # slot-pass:, arg-use:, vm-pass:, vm-use:
+   * # slot-pass:, slot-use:, vm-pass:, vm-use:
    *
    * ## 基本说明
    *
@@ -327,7 +324,7 @@ export function parseAttributes(
    *
    * 其中，vm 是 vm-use 的简化写法。
    *
-   * #### arg-use:
+   * #### slot-use:
    *
    * 指定该组件在自己的内部渲染中，使用哪些通过 slot-pass: 传递进来的外部元素。
    * 以上文 slot-pass: 属性下的代码为例， SomeComponent 组件的模板里，
@@ -335,29 +332,29 @@ export function parseAttributes(
    *
    * ````html
    * <!-- SomeComponent.html -->
-   * <parameter arg-use:a />
-   * <parameter arg-use:b>
+   * <parameter slot-use:a />
+   * <parameter slot-use:b>
    *   <span>default text</span>
    * </parameter>
    * ````
    *
-   * 通过跟 slot-pass: 一致的 key="a"，实现了 arg-use: 和 slot-pass: 的关联，
-   * 将外部的元素渲染到自身内部。如果 arg-use: 属性的组件，还有子节点，则这些子节点
+   * 通过跟 slot-pass: 一致的 key="a"，实现了 slot-use: 和 slot-pass: 的关联，
+   * 将外部的元素渲染到自身内部。如果 slot-use: 属性的组件，还有子节点，则这些子节点
    * 代表外部没有传递对应 key 的外部元素时，要默认渲染的元素。
    *
    * 以上代码最终渲染的结果是 `<span>hello</span><span>default text</span>`。
    *
-   * 对于 html 元素，arg-use: 属性本质上是给它包裹了一个父组件，比如：
-   *   `<span arg-use:a>default</span>` 等价于：
-   *   `<parameter arg-use:a><span>default</span></parameter>`，
+   * 对于 html 元素，slot-use: 属性本质上是给它包裹了一个父组件，比如：
+   *   `<span slot-use:a>default</span>` 等价于：
+   *   `<parameter slot-use:a><span>default</span></parameter>`，
    *
-   * 对于 Component 元素，arg-use: 属性会让编译器忽略该组件的任何性质（或者理解成，
-   *   任何有 arg-use: 属性的组件都会被替换成 <parameter> 空组件）。
+   * 对于 Component 元素，slot-use: 属性会让编译器忽略该组件的任何性质（或者理解成，
+   *   任何有 slot-use: 属性的组件都会被替换成 <parameter> 空组件）。
    *
    * #### vm-pass:
    *
-   * 只有 arg-use: 属性存在时，才能使用 vm-pass: 属性。vm-pass: 用于指定要向外部通过 slot-pass: 传递进来的
-   * 外部元素传递过去哪些渲染参数，因此脱离 arg-use: 属性，vm-pass: 属性没有意义。
+   * 只有 slot-use: 属性存在时，才能使用 vm-pass: 属性。vm-pass: 用于指定要向外部通过 slot-pass: 传递进来的
+   * 外部元素传递过去哪些渲染参数，因此脱离 slot-use: 属性，vm-pass: 属性没有意义。
    *
    * 比如常见的 <for> 循环，即 ForComponent 组件，会向外部元素传递 'each' 和 'index' 两
    * 个渲染参数。但对 ForComponent 组件，这种传递是直接在 js 逻辑里写的，而没有
@@ -367,7 +364,7 @@ export function parseAttributes(
    *
    * ````html
    * <!-- SomeComponent.html -->
-   * <div><parameter arg-use:a vm-pass:xx="name + '_oo' ">hello, ${name}</parameter></div>
+   * <div><parameter slot-use:a vm-pass:xx="name + '_oo' ">hello, ${name}</parameter></div>
    * ````
    *
    * 以上代码会向外部组件传递名称为 xx 的渲染参数，这个参数的值是 `name + 'oo'` 这个表达式
@@ -390,10 +387,10 @@ export function parseAttributes(
    *
    * #### slot-pass: 必须用于 Component 元素的子元素。
    *
-   * #### slot-pass: 和 arg-use: 不能同时使用。
+   * #### slot-pass: 和 slot-use: 不能同时使用。
    *
-   * slot-pass: 和 arg-use: 同时存在，可以设计来没有歧义，
-   *   比如：`<span slot-pass:a arg-use:c>hello</span>` 可以设计为等价于：
+   * slot-pass: 和 slot-use: 同时存在，可以设计来没有歧义，
+   *   比如：`<span slot-pass:a slot-use:c>hello</span>` 可以设计为等价于：
    *
    * 可以等价于：
    *
@@ -411,7 +408,7 @@ export function parseAttributes(
    */
 
   const attrsPos = iattrs[0].loc.start;
-  // slot-pass: 属性和 arg-use: 属性不能同时存在，详见上面的注释。
+  // slot-pass: 属性和 slot-use: 属性不能同时存在，详见上面的注释。
   if (argPass && argUse) {
     logParseError(_visitor, attrsPos, "slot-pass: and slot-use: attribute can' be both used on same element");
   }
@@ -426,11 +423,11 @@ export function parseAttributes(
     );
   }
 
-  // vm-pass: 属性必须用在有 arg-use: 属性的元素上。
+  // vm-pass: 属性必须用在有 slot-use: 属性的元素上。
   if (vmPass.length > 0 && !argUse) {
     logParseError(_visitor, attrsPos, 'vm-pass: attribute require slot-use: attribute');
   }
-  // vm-use: 属性不能用在有 arg-use: 属性的元素上。
+  // vm-use: 属性不能用在有 slot-use: 属性的元素上。
   if (argUse && vms.length > 0) {
     logParseError(_visitor, attrsPos, "vm-use: attribute can't be used with slot-use: attribute");
   }
@@ -480,12 +477,6 @@ export function parseAttributes(
     argAttrs: Object.keys(argAttrs).map((k) => ({ name: k, code: argAttrs[k] })),
     listeners: obj2arr(listenerAttrs).map((lis) => {
       const lisResult = parseListener(_visitor, ...lis[1]);
-      // lisResult.code = lisResult.code
-      //   .replace(/(^[\s;]+)|([\s;]+$)/g, '')
-      //   .replace(/[\r\n]/g, ';')
-      //   .replace(/;+/g, ';')
-      //   .replace(/\{\s*;+/g, '{');
-
       return { name: lis[0], ...lisResult };
     }),
     vms,
