@@ -187,7 +187,7 @@ ${body}
       this._needHandleComment = false; // we only handle comment on topest
     }
     const etag = inode.rawName;
-    if (etag.startsWith('_') /* && etag !== '_t' */ && etag !== '_slot') {
+    if (etag.startsWith('_') && etag !== '_slot') {
       throw logParseError(
         this,
         inode.loc.start,

@@ -65,6 +65,7 @@ export function parseAttributes(
   // const translateAttrs: Record<string, TranslateAttribute> = {};
   const argAttrs: Record<string, string> = {};
   const constAttrs: Record<string, string> = {};
+  const exprAttrs: { a_name: string; aval: string; pos: Position }[] = [];
   const listenerAttrs: Record<string, Lis> = {};
   const vms: VM[] = [];
   const vmPass: { name: string; expr: string; pos: Position }[] = [];
@@ -228,13 +229,10 @@ export function parseAttributes(
       return;
     }
 
-    if (/* a_name in translateAttrs || */ a_name in constAttrs || a_name in argAttrs) {
+    if (a_name in constAttrs || a_name in argAttrs) {
       throw logParseError(_visitor, iattr.loc.start, 'dulplicated attribute: ' + a_name);
     }
     if (!aval) {
-      if (a_category === 'expr') {
-        throw logParseError(_visitor, iattr.loc.start, 'Attribute with expression type must have value.');
-      }
       a_category = 'expr';
       aval = 'true';
     }
@@ -242,14 +240,8 @@ export function parseAttributes(
     if (a_category === 'str') {
       aval = '`' + aval + '`';
     }
-    const res = parseExpr(_visitor, aval, iattr.value?.loc.start || iattr.loc.start);
-    const code = res.isConst ? res.codes[0] : res.codes.join('\n');
-
-    if (res.isConst) {
-      constAttrs[a_name] = code;
-    } else {
-      argAttrs[a_name] = code;
-    }
+    // 此处先暂存所有表达式属性，等 vm-use: 等属性解析完成后，再 parse_expr，以便进行可能需要的 vm-use: 的映射。
+    exprAttrs.push({ a_name, aval, pos: iattr.value?.loc.start || iattr.loc.start });
   });
 
   /*
@@ -265,7 +257,7 @@ export function parseAttributes(
    *
    * #### slot-pass:
    *
-   * 该属性指定要将外部元素传递到组件的内部渲染中。比如：
+   * 该属性指定要将外部元素传递到组件的内部渲染中，可以理解为将子元素作为参数传递给组件。比如：
    *
    * ````html
    * <SomeComponent>
@@ -279,14 +271,11 @@ export function parseAttributes(
    * SomeComponent 组件。SomeComponent 组件在渲染时，可获取到该外部传递进
    * 来的元素。
    *
-   * 对于 html 元素，slot-pass 属性本质上是给它包裹了一个父组件，比如：
+   * slot-pass 属性可直接放置到 html 或 Component 元素上，等价于给它包裹了一个 <_slot>，比如：
    *   `<span slot-pass:a>hello</span>` 等价于：
-   *   `<_slot slot-pass:a><span>hello</span></_slot>`，
+   *   `<_slot slot-pass:a><span>hello</span></_slot>`
    *
-   * 对于 Component 元素，slot-pass 属性会让编译器忽略该组件的任何性质（或者理解成，
-   *   任何有 slot-pass 属性的组件都会被替换成 <_slot> 空组件）。
-   *
-   * 对任何组件元素来说，如果它没有任何根子节点包含 slot-pass 属性，则编译器会
+   * 对任何 Component 元素来说，如果它没有任何根子节点包含 slot-pass 属性，则编译器会
    *   默认将所有根子节点包裹在 <_slot slot-pass:default> 里。比如：
    *   `<SomeComponent><span>hello</span>Good<span>world</span></SomeComponent>`
    *   等价于：
@@ -305,8 +294,7 @@ export function parseAttributes(
    * 只有 slot-pass: 属性存在时，才能使用 vm-use: 属性。vm-use: 用于指定要通过 slot-pass: 传递到组件内部去的
    * 外部元素，在组件内部被渲染时，可以使用哪些组件内部提供的渲染参数；因此脱离 slot-pass: 属性，vm-use: 属性没有意义。
    *
-   * 但为了代码的简介性，当 Component 元素没有根子节点有 slot-pass: 属性（即，它的所有根子节点
-   * 被当作默认的 <_slot slot-pass:default>）时，
+   * 但为了代码的简介性，当 Component 元素没有根子节点有 slot-pass: 属性（即，它的所有根子节点被当作默认的 <_slot slot-pass:default>）时，
    * 这个组件`可以只有 vm-use: 而没有 slot-pass: 属性`。
    * 这种情况属于语法糖，本质上等价于在其默认的 <_slot slot-pass:default> 上添加了这些 vm-use:。比如：
    * `<SomeComponent vm-use:a="b"><span>${b}</span></SomeComponent>` 等价于：
@@ -322,7 +310,9 @@ export function parseAttributes(
    * </ForComponent>
    * ````
    *
-   * 其中，vm 是 vm-use 的简化写法。
+   * 需要注意的是，slot-pass 和 vm-use 属性不能同时直接放置到 Component 元素上。因为 Component 元素上的 vm-use 属性本身已经有设计含义（见上文），
+   * 为了不引入歧义（vm-use 到底是指当前 Component 的，还是父组件的），直接禁止在 Component 元素上同时引入 slot-pass 和 vm-use。
+   *
    *
    * #### slot-use:
    *
@@ -364,7 +354,7 @@ export function parseAttributes(
    *
    * ````html
    * <!-- SomeComponent.html -->
-   * <div><parameter slot-use:a vm-pass:xx="name + '_oo' ">hello, ${name}</parameter></div>
+   * <div><_slot slot-use:a vm-pass:xx="name + '_oo' ">hello, ${name}</_slot></div>
    * ````
    *
    * 以上代码会向外部组件传递名称为 xx 的渲染参数，这个参数的值是 `name + 'oo'` 这个表达式
@@ -423,6 +413,15 @@ export function parseAttributes(
     );
   }
 
+  // slot-pass 和 vm-use 不能同时用到 Component 元素上，如果是想传递 slot，必须用 <_slot> 来包裹。原因详见前面的注释。
+  if (argPass && vms.length > 0 && mode !== 'html' && tag !== '_slot') {
+    logParseError(
+      _visitor,
+      attrsPos,
+      "slot-pass: and vm-use: attribute can't be used together with Component element, try wrap it with <_slot>",
+    );
+  }
+
   // vm-pass: 属性必须用在有 slot-use: 属性的元素上。
   if (vmPass.length > 0 && !argUse) {
     logParseError(_visitor, attrsPos, 'vm-pass: attribute require slot-use: attribute');
@@ -448,7 +447,6 @@ export function parseAttributes(
    * ````html
    * <SomeComponent>
    *   <p slot-pass:a vm-use:xx="yy" class="c1 ${yy}">override ${yy}</p>
-   *   <AnotherComponent slot:b vm:xx="yy"/>
    * </SomeComponent>
    * ````
    *
@@ -459,9 +457,6 @@ export function parseAttributes(
    * <_slot slot-pass:a vm-use:xx="yy">
    *   <p class="c1 ${yy}">override ${yy}</p>
    * </_slot>
-   * <_slot slot-pass:b vm-use:xx="yy">
-   *   <AnotherComponent/>
-   * </_slot>
    * </SomeComponent>
    * ````
    *
@@ -471,6 +466,17 @@ export function parseAttributes(
   if (tag !== '_slot' && vms.length > 0) {
     _visitor._vms = pVms.slice().concat(vms);
   }
+
+  exprAttrs.forEach(({ a_name, aval, pos }) => {
+    const res = parseExpr(_visitor, aval, pos);
+    const code = res.isConst ? res.codes[0] : res.codes.join('\n');
+
+    if (res.isConst) {
+      constAttrs[a_name] = code;
+    } else {
+      argAttrs[a_name] = code;
+    }
+  });
 
   const rtn = {
     constAttrs: Object.keys(constAttrs).map((k) => ({ name: k, code: constAttrs[k] })),
