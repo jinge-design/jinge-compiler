@@ -11,16 +11,19 @@ export interface TemplateParserOptions {
   addDebugName: boolean;
 }
 
+function cl(s: string) {
+  return s ? '\n' + s : '';
+}
+
+const DEP_REGEX = new RegExp(`([\\w$_][\\w\\d$_]+)${SYMBOL_POSTFIX}\\b`, 'g');
+
 export class TemplateParser {
   static aliasManager = aliasManager;
-  static _parse(content: string, options: TemplateParserOptions) {
-    function cl(s: string) {
-      return s ? '\n' + s : '';
-    }
+
+  static parse(content: string, options: TemplateParserOptions) {
     const tplParser = new TemplateParser(options);
     const result = tplParser.parse(content);
-    const depRegex = new RegExp(`([\\w$_][\\w\\d$_]+)${SYMBOL_POSTFIX}\\b`, 'g');
-    const imports = [...new Set([...result.renderFn.matchAll(depRegex)].map((m) => m[1]))].map(
+    const imports = [...new Set([...result.renderFn.matchAll(DEP_REGEX)].map((m) => m[1]))].map(
       (d) => `${d} as ${d}${SYMBOL_POSTFIX}`,
     );
     return {
@@ -32,14 +35,30 @@ export class TemplateParser {
     };
   }
 
-  static async parse(content: string, options: TemplateParserOptions) {
-    return new Promise<{ code: string }>((resolve, reject) => {
-      try {
-        resolve(TemplateParser._parse(content, options));
-      } catch (err) {
-        reject(err);
-      }
-    });
+  static parse2(
+    content: string,
+    options: TemplateParserOptions,
+  ): {
+    /** jinge 库中需要 import 的依赖项 */
+    jingeImports: string[];
+    /** 通过 alias 注册的组件别名的依赖项的代码 */
+    aliasImportsCode: string;
+    /** 模板 html 代码中主动 import 的依赖项的代码 */
+    templateImportsCode: string;
+    /** 渲染函数的代码 */
+    renderFnCode: string;
+  } {
+    const tplParser = new TemplateParser(options);
+    const result = tplParser.parse(content);
+    const imports = [...new Set([...result.renderFn.matchAll(DEP_REGEX)].map((m) => m[1]))].map(
+      (d) => `${d} as ${d}${SYMBOL_POSTFIX}`,
+    );
+    return {
+      jingeImports: imports,
+      aliasImportsCode: result.aliasImports,
+      templateImportsCode: result.imports,
+      renderFnCode: result.renderFn,
+    };
   }
 
   resourcePath: string;

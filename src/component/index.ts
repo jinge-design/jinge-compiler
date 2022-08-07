@@ -302,7 +302,7 @@ export class ComponentParser {
     }
   }
 
-  async parse(code: string, origSrcMap: RawSourceMap) {
+  parse(code: string, origSrcMap: RawSourceMap) {
     this.source = code;
     const comments: Comment[] = [];
     let tree;
