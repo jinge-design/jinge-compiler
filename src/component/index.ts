@@ -2,7 +2,6 @@ import { Node, Parser, Comment } from 'acorn';
 import { RawSourceMap } from 'source-map';
 import { base as BaseAcornVisitor } from 'acorn-walk';
 import {
-  BlockStatement,
   ClassDeclaration,
   ClassExpression,
   Expression,
@@ -68,9 +67,9 @@ export class ComponentParser {
     })(node);
   }
 
-  walkClass(node: ClassDeclaration | ClassExpression) {
+  walkClass(node: ClassDeclaration | ClassExpression, force = false) {
     const sc = node.superClass as unknown as { type: string; name: string };
-    if (sc?.type !== 'Identifier' && sc?.name !== 'Component') {
+    if (!force && sc?.name !== 'Component') {
       /* TODO: 支持 Component 有别名的写法 */
       return;
     }
@@ -80,6 +79,7 @@ export class ComponentParser {
       if (mem.type !== 'MethodDefinition') continue;
       if (mem.kind === 'constructor') {
         constructorNode = mem;
+        break;
       }
     }
 
@@ -148,9 +148,13 @@ export class ComponentParser {
   }
 
   walkConstructor(node: Node & MethodDefinition, ClassName: string) {
-    const fn = node.value as unknown as { body: Node & BlockStatement } & FunctionExpression;
-    const an = fn.params.length === 0 ? null : (fn.params[0] as Identifier).name;
-    if (!an) throw new Error(`constructor of ${ClassName} must accept at least one argument.`);
+    const fn = node.value as FunctionExpression & Node;
+    const p0 = fn.params[0];
+    if (p0 && p0.type !== 'Identifier') {
+      // 暂不支持 constructor(...params) 的写法，必须是 constructor(attrs, x, y, z) 的写法。
+      throw new Error(`parameter of constructor of '${ClassName}' must be identifier`);
+    }
+    const attrsName = (p0 as Identifier)?.name;
     let foundSupper = false;
     /** 将 this.xx 转成 vmThis.xx */
     const replaceThis = (stmt: Statement) => {
@@ -176,8 +180,29 @@ export class ComponentParser {
       const expr = stmt.expression as Expression & Node;
       if (expr.type === 'CallExpression') {
         if (expr.callee.type === 'Super') {
-          if (expr.arguments.length === 0 || (expr.arguments[0] as Identifier).name !== an) {
-            throw new Error(`constructor of ${ClassName} must pass first argument '${an}' to super-class`);
+          const a0 = expr.arguments[0];
+          if (
+            a0 &&
+            a0.type === 'SpreadElement' &&
+            a0.argument.type === 'Identifier' &&
+            a0.argument.name === 'arguments'
+          ) {
+            /**
+             * class A extends Component { a = 10 }
+             * 会被 esbuild/tsc 转成
+             * class A extends Component { constructor() {
+             *   super(...arguments);
+             *   this.a = 10;
+             * }}
+             * 这种情况下，是允许 constructor 函数没有传递参数的。
+             */
+          } else {
+            if (!attrsName) {
+              throw new Error(`constructor of '${ClassName}' must accept at least one parameter.`);
+            }
+            if (!a0 || a0.type !== 'Identifier' || a0.name !== attrsName) {
+              throw new Error(`super call expression must pass first paramter of constructor expression`);
+            }
           }
           foundSupper = true;
           /**
@@ -215,7 +240,7 @@ export class ComponentParser {
         };
         this._walkAcorn(expr.right, {
           MemberExpression: (node: MemberExpression) => {
-            const paths = this._parse_mem_path(node, an);
+            const paths = this._parse_mem_path(node, attrsName);
             if (paths) addProp(paths);
             return false;
           },
@@ -259,7 +284,9 @@ export class ComponentParser {
                 `${props
                   .map(
                     (prop) =>
-                      `${an}[$$${SYMBOL_POSTFIX}].__watch(${JSON.stringify(prop)}, f${stmtIdx}${SYMBOL_POSTFIX});`, // 监控到变化时重新执行赋值函数
+                      `${attrsName}[$$${SYMBOL_POSTFIX}].__watch(${JSON.stringify(
+                        prop,
+                      )}, f${stmtIdx}${SYMBOL_POSTFIX});`, // 监控到变化时重新执行赋值函数
                   )
                   .join('')}`;
           sortedInsert(this._inserts, { sn: stmt.end, se: stmt.end, code });
@@ -270,9 +297,12 @@ export class ComponentParser {
         replaceThis(stmt);
       }
     });
+    if (!foundSupper) {
+      throw new Error(`constructor of '${ClassName}' must call super`);
+    }
   }
 
-  async parse(code: string, origSrcMap: RawSourceMap) {
+  parse(code: string, origSrcMap: RawSourceMap) {
     this.source = code;
     const comments: Comment[] = [];
     let tree;
@@ -288,16 +318,33 @@ export class ComponentParser {
       throw new Error(ex.message + ' @ ' + this.resourcePath);
     }
 
-    this._walkAcorn(tree, {
-      ClassExpression: (node: ClassExpression) => {
-        this.walkClass(node);
-        return false;
-      },
-      ClassDeclaration: (node: ClassDeclaration) => {
-        this.walkClass(node);
-        return false;
-      },
-    });
+    // 如果文件中有含有 @jinge-component-ignore 的注释，则忽略当前文件不进行 parse；
+    // 如果文件中有含有 @jinge-component-parse 的注释，则强制对文件中的所有 class 进行 parse。
+    let skip = 0;
+    if (comments.length > 0) {
+      for (let i = 0; i < comments.length; i++) {
+        const cnt = comments[i].value;
+        if (cnt.includes('@jinge-component-ignore')) {
+          skip = -1;
+          break;
+        } else if (cnt.includes('@jinge-component-parse')) {
+          skip = 1;
+          break;
+        }
+      }
+    }
+
+    skip >= 0 &&
+      this._walkAcorn(tree, {
+        ClassExpression: (node: ClassExpression) => {
+          this.walkClass(node, skip === 1);
+          return false;
+        },
+        ClassDeclaration: (node: ClassDeclaration) => {
+          this.walkClass(node, skip === 1);
+          return false;
+        },
+      });
 
     this.source = getReplaceResult(this._inserts, this.source);
 

@@ -30,6 +30,7 @@ async function transformFile(file) {
   const { code, map, warnings } = await esbuild.transform(src, {
     target: 'node18',
     format: 'cjs',
+    charset: 'utf8',
     loader: path.extname(file).slice(1),
     sourcemap: true,
     sourcefile: `${path.relative(file, SRC_DIR)}/src/${rf}`,

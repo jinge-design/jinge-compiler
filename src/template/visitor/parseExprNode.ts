@@ -33,10 +33,15 @@ function replaceOptionalChain(replaces: ReplaceItem[], memnode: MemExp) {
 function convert(_visitor: TemplateVisitor, node: Identifier & Node, props?: MememberPath[]) {
   const vmVar = _visitor._vms.find((v) => v.name === node.name);
   const level = vmVar ? vmVar.level : 0;
+  const code = `vm_${level}.${vmVar ? vmVar.reflect : node.name}`;
+  if (node.name.startsWith('_')) {
+    // _ 打头的变量不进行监听
+    return { code };
+  }
   const pn = props?.map((p) => p.value) || [node.name];
   if (vmVar) pn[0] = vmVar.reflect;
   return {
-    code: `vm_${level}.${vmVar ? vmVar.reflect : node.name}`,
+    code,
     path: {
       vm: `vm_${level}`,
       n: JSON.stringify(pn),
@@ -80,7 +85,7 @@ export function parseExprNode(
       } else {
         const res = convert(_visitor, node);
         code = res.code;
-        addPath(res.path, watchPaths);
+        res.path && addPath(res.path, watchPaths);
         isConst = false;
       }
       sortedInsert(replaces, {
@@ -93,11 +98,11 @@ export function parseExprNode(
     MemberExpression: (memnode: MemberExpression & Node) => {
       const mn = parseExprMemberNode(_visitor, memnode, info.startLine);
       if (_visitor._imports.has(mn.root.name)) {
-        // mn.root.name += IMPORT_POSTFIX;
         sortedInsert(replaces, { sn: mn.root.start, se: mn.root.end, code: mn.root.name + IMPORT_POSTFIX });
         return false;
       }
       isConst = false;
+
       if (mn.computed < 1) {
         const res = convert(_visitor, mn.root, mn.paths);
         sortedInsert(replaces, {
@@ -106,7 +111,7 @@ export function parseExprNode(
           code: res.code,
         });
         replaceOptionalChain(replaces, memnode as unknown as MemExp);
-        addPath(res.path, watchPaths);
+        res.path && addPath(res.path, watchPaths);
       } else {
         computedMemberExprs.push({
           ...mn,
@@ -117,13 +122,18 @@ export function parseExprNode(
     },
   });
 
-  if (isConst) {
+  if (isConst || (!watchPaths.length && !computedMemberExprs.length)) {
     // 如果没有 Identifier 或者 MemberExpression，说明是常量表达式。
-    // 此外，对于 module css 表达式也作为常量处理。
-    const code = getReplaceResult(replaces, info.source, expr).trim();
-    // if (code.startsWith('{') || code.startsWith('[')) {
-    //   code = `vm${SYMBOL_POSTFIX}(${code})`;
-    // }
+    // 如果 Identifier 或者 MemberExpression 表达式里全是下划线打头的变更，说明不需要进行监听，也可以当常量来处理。
+    let code = getReplaceResult(replaces, info.source, expr).trim();
+    if (
+      expr.type === 'TemplateLiteral' &&
+      expr.expressions.length === 1 &&
+      !expr.quasis.some((qu) => qu.value.raw !== '')
+    ) {
+      // 如果是 `${xx}` 这样的本质是纯表达式的 exprCode，把 `${}` 去除只保留内部的 expression
+      code = code.slice(3, code.length - 2);
+    }
     return {
       isConst: true,
       codes: [code],
@@ -134,8 +144,16 @@ export function parseExprNode(
   const parentLevelId = levelPath.slice(0, levelPath.length - 1).join('_');
 
   if (computedMemberExprs.length === 0) {
-    const exprCode = getReplaceResult(replaces, info.source, expr);
+    let exprCode = getReplaceResult(replaces, info.source, expr).trim();
     if (levelPath.length === 1) {
+      if (
+        expr.type === 'TemplateLiteral' &&
+        expr.expressions.length === 1 &&
+        !expr.quasis.some((qu) => qu.value.raw !== '')
+      ) {
+        // 如果是 `${xx}` 这样的本质是纯表达式的 exprCode，把 `${}` 去除只保留内部的 expression
+        exprCode = exprCode.slice(3, exprCode.length - 2);
+      }
       const needWrapViewModel = expr.type === 'ObjectExpression' || expr.type === 'ArrayExpression';
       const codes = [
         '',

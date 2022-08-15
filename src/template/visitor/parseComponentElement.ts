@@ -79,7 +79,7 @@ export function parseComponentElement(
         let code = at.code;
         const isObj = /^[{[]/.test(code);
         if (cors) {
-          if (isObj) code = `${at.name}2str(${code})`;
+          if (isObj) code = `${at.name}2str${SYMBOL_POSTFIX}(${code})`;
         } else {
           if (isObj) code = `vm${SYMBOL_POSTFIX}(${code})`;
         }

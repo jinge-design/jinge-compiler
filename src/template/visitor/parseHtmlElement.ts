@@ -14,6 +14,7 @@ export function parseHtmlElement(_visitor: TemplateVisitor, etag: string, inode:
   const elements = _visitor.visitChildNodes(inode.body, result.vms, {
     type: 'html',
     isSVG: _visitor._parent.isSVG || etag === 'svg',
+    isPreOrCodeTag: etag === 'pre' || etag === 'code',
   });
   const setRefCode = result.ref
     ? replaceTpl(SET_REF_ELE, {
@@ -81,6 +82,10 @@ ${result.argAttrs
       }
     }
     const cors = at.name === 'class' || at.name === 'style';
+    if (cors) {
+      // 如果是 class 或 style 属性，则去除 vm 包裹。
+      at.code = at.code.replace(`$RENDER_START$vm${SYMBOL_POSTFIX}`, '$RENDER_START$');
+    }
     // 如果是 class 或 style 属性，使用 setClassAttribute/setStyleAttribute，否则使用 setAttribute
     return replaceTpl(at.code, {
       REL_COM: `component[$$${SYMBOL_POSTFIX}]`,
