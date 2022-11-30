@@ -1,7 +1,7 @@
 import { Node } from 'acorn';
 import { Expression, Identifier, MemberExpression } from 'estree';
 import { Position } from './common';
-import { logParseError } from './helper';
+import { throwParseError } from './helper';
 import { TemplateVisitor } from './visitor';
 
 export type MememberPath =
@@ -18,7 +18,7 @@ export function parseExprMemberNode(_visitor: TemplateVisitor, memExpr: MemberEx
   let computed = -1; // -1: no computed, 0: only have Literal computed, 1: member expression computed
   let root: Identifier & Node = null;
   const unsupport = (loc: Position) =>
-    logParseError(
+    throwParseError(
       _visitor,
       {
         line: startLine + loc.line - 1,

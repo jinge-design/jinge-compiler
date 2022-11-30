@@ -85,4 +85,4 @@ $PUSH_ELE$
   return assertRenderResults$POSTFIX$(el.__render());
 })()`;
 
-export const ERROR = 'errorRenderFn$POSTFIX$';
+export const ERROR = '(el) => errorRenderFn$POSTFIX$(el, $MESSAGE$)';

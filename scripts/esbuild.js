@@ -3,13 +3,10 @@ const { promises: fs } = require('fs');
 const { execSync } = require('child_process');
 const esbuild = require('esbuild');
 const chokidar = require('chokidar');
-const debugTargetProjectDir = (() => {
-  const dir = process.env.DEBUG_PROJECT;
-  return dir ? path.join(dir, 'node_modules/jinge-compiler/lib') : undefined;
-})();
 const WATCH = process.env.WATCH === 'true';
 const SRC_DIR = path.resolve(__dirname, '../src');
-const DIST_DIR = path.resolve(process.cwd(), debugTargetProjectDir || 'lib');
+const DIST_CJS_DIR = path.resolve(process.cwd(), 'lib');
+const DIST_ESM_DIR = path.resolve(process.cwd(), 'es');
 
 async function glob(dir) {
   const subs = await fs.readdir(dir);
@@ -27,9 +24,13 @@ async function glob(dir) {
 async function transformFile(file) {
   const src = await fs.readFile(file, 'utf-8');
   const rf = path.relative(SRC_DIR, file);
+  await doTransformFile('cjs', file, src, rf);
+  await doTransformFile('esm', file, src, rf);
+}
+async function doTransformFile(type, file, src, rf) {
   const { code, map, warnings } = await esbuild.transform(src, {
     target: 'node18',
-    format: 'cjs',
+    format: type === 'cjs' ? 'cjs' : 'esm',
     charset: 'utf8',
     loader: path.extname(file).slice(1),
     sourcemap: true,
@@ -38,7 +39,10 @@ async function transformFile(file) {
   });
   if (warnings?.length) console.error(warnings);
   if (!code) return; // ignore empty file
-  const distfile = path.join(DIST_DIR, rf.replace(/\.ts$/, '.js'));
+  const distfile = path.join(
+    type === 'cjs' ? DIST_CJS_DIR : DIST_ESM_DIR,
+    rf.replace(/\.ts$/, type === 'cjs' ? '.js' : '.mjs'),
+  );
   execSync(`mkdir -p ${path.dirname(distfile)}`);
   await Promise.all([
     fs.writeFile(distfile, code + `\n//# sourceMappingURL=${path.basename(distfile) + '.map'}`),

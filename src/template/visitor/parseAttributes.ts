@@ -1,7 +1,7 @@
 import { IAttribute } from '@jingeweb/html5parser';
 import { Parent, Position, VM } from './common';
 import { KNOWN_ATTR_TYPES } from './const';
-import { logParseError } from './helper';
+import { throwParseError } from './helper';
 import { parseExpr } from './parseExpr';
 import { parseListener } from './parseListener';
 import { TemplateVisitor } from './visitor';
@@ -106,21 +106,24 @@ export function parseAttributes(
     }
 
     if (a_category && KNOWN_ATTR_TYPES.indexOf(a_category.toLowerCase()) < 0) {
-      throw logParseError(_visitor, iattr.loc.start, 'unkown attribute type ' + a_category);
+      throwParseError(_visitor, iattr.loc.start, 'unkown attribute type ' + a_category);
     }
     if (!/^[\w\d$_-][\w\d$_.|-]*$/.test(a_name)) {
-      throw logParseError(_visitor, iattr.loc.start, 'attribute name must match /^[\\w\\d$_-][\\w\\d$_.|-]*$/');
+      throwParseError(_visitor, iattr.loc.start, 'attribute name must match /^[\\w\\d$_-][\\w\\d$_.|-]*$/');
     }
     a_category = a_category.toLowerCase();
 
     if (a_category === 'ref') {
-      if (!a_name) throw logParseError(_visitor, iattr.loc.start, 'ref attribute require name.');
-      if (ref) throw logParseError(_visitor, iattr.loc.start, 'ref attribute can only be used once!');
+      if (!a_name) throwParseError(_visitor, iattr.loc.start, 'ref attribute require name.');
+      if (ref) throwParseError(_visitor, iattr.loc.start, 'ref attribute can only be used once!');
       ref = a_name;
       return;
     }
 
-    if (a_category === 'vm') a_category = 'vm-use';
+    if (a_category === 'vm' || a_category === 'vu') a_category = 'vm-use';
+    else if (a_category === 'vp') a_category = 'vm-pass';
+    else if (a_category === 'sp') a_category = 'slot-pass';
+    else if (a_category === 'su') a_category = 'slot-use';
     else if (a_category === 's') a_category = 'str';
     else if (a_category === 'e') a_category = 'expr';
 
@@ -128,24 +131,24 @@ export function parseAttributes(
     // extract from quote
 
     if (a_category === 'vm-use') {
-      if (!a_name) logParseError(_visitor, iattr.loc.start, 'vm-use type attribute require reflect variable name.');
+      if (!a_name) throwParseError(_visitor, iattr.loc.start, 'vm-use type attribute require reflect variable name.');
       if (!aval) aval = a_name;
       if (!/^[\w\d$_]+$/.test(aval))
-        throw logParseError(
+        throwParseError(
           _visitor,
           iattr.loc.start,
           'vm-use type attribute value must match /^[\\w\\d$_]+$/, but got: ' + aval,
         );
       if (!/^[\w\d$_]+$/.test(a_name))
-        throw logParseError(
+        throwParseError(
           _visitor,
           iattr.loc.start,
           'vm-use type attribute reflect vairable name must match /^[\\w\\d$_]+$/, but got: ' + a_name,
         );
       if (vms.find((v) => v.name === aval))
-        throw logParseError(_visitor, iattr.loc.start, 'vm-use type attribute name dulipcated: ' + a_name);
+        throwParseError(_visitor, iattr.loc.start, 'vm-use type attribute name dulipcated: ' + a_name);
       if (pVms.find((v) => v.name === aval))
-        throw logParseError(
+        throwParseError(
           _visitor,
           iattr.loc.start,
           'vm-use attribute reflect vairiable name"' + a_name + '" has been declared in parent context.',
@@ -159,19 +162,18 @@ export function parseAttributes(
     }
 
     if (a_category === 'vm-pass') {
-      if (!a_name)
-        throw logParseError(_visitor, iattr.loc.start, 'vm-pass type attribute require reflect variable name.');
+      if (!a_name) throwParseError(_visitor, iattr.loc.start, 'vm-pass type attribute require reflect variable name.');
       if (!aval) aval = a_name;
       if (mode === 'html')
-        throw logParseError(_visitor, iattr.loc.start, "vm-pass attribute can't be used on html element");
+        throwParseError(_visitor, iattr.loc.start, "vm-pass attribute can't be used on html element");
       if (!/^[\w\d$_]+$/.test(a_name))
-        throw logParseError(
+        throwParseError(
           _visitor,
           iattr.loc.start,
           'vm-pass type attribute reflect vairable name must match /^[\\w\\d$_]+$/',
         );
       if (vmPass.find((v) => v.name === a_name))
-        throw logParseError(_visitor, iattr.loc.start, 'vm-pass type attribute name dulipcated: ' + a_name);
+        throwParseError(_visitor, iattr.loc.start, 'vm-pass type attribute name dulipcated: ' + a_name);
       vmPass.push({
         name: a_name,
         expr: aval,
@@ -181,16 +183,16 @@ export function parseAttributes(
     }
 
     if (a_category === 'slot-pass') {
-      if (argPass) throw logParseError(_visitor, iattr.loc.start, 'slot-pass: attribute can only be used once!');
+      if (argPass) throwParseError(_visitor, iattr.loc.start, 'slot-pass: attribute can only be used once!');
       if (parentInfo.sub === 'argument') {
-        throw logParseError(
+        throwParseError(
           _visitor,
           iattr.loc.start,
           "if parent component has slot-pass: or vm-use: attribute, child component can't also have slot-pass: attribue. Try to put component under <_slot>.",
         );
       }
       if (parentInfo.type !== 'component') {
-        throw logParseError(
+        throwParseError(
           _visitor,
           iattr.loc.start,
           'slot-pass: attribute can only be used as root child of Component element.',
@@ -202,7 +204,7 @@ export function parseAttributes(
 
     if (a_category === 'slot-use') {
       if (argUse) {
-        throw logParseError(_visitor, iattr.loc.start, 'slot-use: attribute can only be used once!');
+        throwParseError(_visitor, iattr.loc.start, 'slot-use: attribute can only be used once!');
       }
       if (a_tag) {
         const ns = (a_tag as string).split('.');
@@ -220,17 +222,17 @@ export function parseAttributes(
 
     if (a_category === 'on') {
       if (!a_name) {
-        throw logParseError(_visitor, iattr.loc.start, 'event name is required!');
+        throwParseError(_visitor, iattr.loc.start, 'event name is required!');
       }
       if (a_name in listenerAttrs) {
-        throw logParseError(_visitor, iattr.loc.start, 'event name is dulplicated: ' + a_name);
+        throwParseError(_visitor, iattr.loc.start, 'event name is dulplicated: ' + a_name);
       }
       listenerAttrs[a_name] = [aval, a_tag as Record<string, boolean>, iattr.value?.loc.start || iattr.loc.start];
       return;
     }
 
     if (a_name in constAttrs || a_name in argAttrs) {
-      throw logParseError(_visitor, iattr.loc.start, 'dulplicated attribute: ' + a_name);
+      throwParseError(_visitor, iattr.loc.start, 'dulplicated attribute: ' + a_name);
     }
     if (!aval) {
       a_category = 'expr';
@@ -400,13 +402,13 @@ export function parseAttributes(
   const attrsPos = iattrs[0].loc.start;
   // slot-pass: 属性和 slot-use: 属性不能同时存在，详见上面的注释。
   if (argPass && argUse) {
-    logParseError(_visitor, attrsPos, "slot-pass: and slot-use: attribute can' be both used on same element");
+    throwParseError(_visitor, attrsPos, "slot-pass: and slot-use: attribute can' be both used on same element");
   }
 
   // html 元素上的必须有 slot-pass: 属性，才能有 vm-use: 属性
   // component 元素可以只有 vm-use: 属性，但需要满足上面注释里详细描述的条件，这个条件的检测在之后的代码逻辑里。
   if (vms.length > 0 && !argPass && mode === 'html') {
-    logParseError(
+    throwParseError(
       _visitor,
       attrsPos,
       'vm-use: attribute require slot-pass: attribute on html element. see https://[todo]',
@@ -415,7 +417,7 @@ export function parseAttributes(
 
   // slot-pass 和 vm-use 不能同时用到 Component 元素上，如果是想传递 slot，必须用 <_slot> 来包裹。原因详见前面的注释。
   if (argPass && vms.length > 0 && mode !== 'html' && tag !== '_slot') {
-    logParseError(
+    throwParseError(
       _visitor,
       attrsPos,
       "slot-pass: and vm-use: attribute can't be used together with Component element, try wrap it with <_slot>",
@@ -424,18 +426,18 @@ export function parseAttributes(
 
   // vm-pass: 属性必须用在有 slot-use: 属性的元素上。
   if (vmPass.length > 0 && !argUse) {
-    logParseError(_visitor, attrsPos, 'vm-pass: attribute require slot-use: attribute');
+    throwParseError(_visitor, attrsPos, 'vm-pass: attribute require slot-use: attribute');
   }
   // vm-use: 属性不能用在有 slot-use: 属性的元素上。
   if (argUse && vms.length > 0) {
-    logParseError(_visitor, attrsPos, "vm-use: attribute can't be used with slot-use: attribute");
+    throwParseError(_visitor, attrsPos, "vm-use: attribute can't be used with slot-use: attribute");
   }
   if (argPass && (_visitor._parent.type !== 'component' || _visitor._parent.sub === 'root')) {
-    logParseError(_visitor, attrsPos, "slot-pass: attribute can only be used on Component element's root child.");
+    throwParseError(_visitor, attrsPos, "slot-pass: attribute can only be used on Component element's root child.");
   }
   //
   if (tag === '_slot' && !argPass && !argUse) {
-    logParseError(_visitor, attrsPos, '<_slot> component require "slot-pass:" or "slot-use:" attribute.');
+    throwParseError(_visitor, attrsPos, '<_slot> component require "slot-pass:" or "slot-use:" attribute.');
   }
   /**
    * 如果元素上有 slot-pass: 和 vm-use: ，则该元素等价于被包裹在
@@ -501,7 +503,7 @@ export function parseAttributes(
   }
 
   if (tag === '_slot' && (rtn.ref || rtn.argAttrs.length > 0 || rtn.listeners.length > 0)) {
-    logParseError(_visitor, attrsPos, '<_slot> component can only have slot-pass: or slot-use: attribute');
+    throwParseError(_visitor, attrsPos, '<_slot> component can only have slot-pass: or slot-use: attribute');
   }
   return rtn;
 }
