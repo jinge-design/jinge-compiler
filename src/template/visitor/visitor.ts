@@ -7,7 +7,7 @@ import { INode, ITag, IText, SyntaxKind } from '@jingeweb/html5parser';
 import { aliasManager } from '../alias';
 import { IMPORT_POSTFIX, SYMBOL_POSTFIX } from '../../util';
 import * as TPL from './tpl';
-import { logParseError, prependTab2Space, replaceTpl } from './helper';
+import { throwParseError, prependTab2Space, replaceTpl } from './helper';
 import { Parent, ParsedElement, Position, VM } from './common';
 import { parseComponentElement } from './parseComponentElement';
 import { parseHtmlElement } from './parseHtmlElement';
@@ -17,7 +17,6 @@ export interface TemplateVisitorOptions {
   source: string;
   resourcePath: string;
   addDebugName: boolean;
-  emitErrorFn: (err: unknown) => void;
 }
 export class TemplateVisitor {
   _source: string;
@@ -28,7 +27,6 @@ export class TemplateVisitor {
   _underMode_T: boolean;
   _vms: VM[];
   _resourcePath: string;
-  _emitErrorFn: (err: unknown) => void;
   _addDebugName: boolean;
   _needHandleComment: boolean;
   _parent: Parent;
@@ -42,7 +40,6 @@ export class TemplateVisitor {
     this._underMode_T = false;
     this._vms = [];
     this._resourcePath = opts.resourcePath;
-    this._emitErrorFn = opts.emitErrorFn;
     this._addDebugName = opts.addDebugName;
     this._imports = new Set();
     this._importOutputCodes = [];
@@ -75,14 +72,14 @@ export class TemplateVisitor {
     elements.forEach((el) => {
       if (el.type === 'component' && el.sub === 'argument') {
         if (found < 0) {
-          throw logParseError(
+          throwParseError(
             this,
             tokenPosition,
             `children of <${Component}> must satisfy the requirement that all of them contain slot-pass: attribute or none of them contain slot-pass: attribute`,
           );
         }
         if (el.argPass in args) {
-          throw logParseError(
+          throwParseError(
             this,
             tokenPosition,
             `slot-pass: attribute name must be unique under <${Component}>, but found duplicate: ${el.argPass}`,
@@ -92,7 +89,7 @@ export class TemplateVisitor {
         found = 1;
       } else {
         if (found > 0) {
-          throw logParseError(
+          throwParseError(
             this,
             tokenPosition,
             `children of <${Component}> must satisfy the requirement that all of them contain slot-pass: attribute or none of them contain slot-pass: attribute`,
@@ -153,7 +150,7 @@ ${body}
     try {
       txt = decode(txt);
     } catch (ex) {
-      logParseError(this, inode.loc.start, ex.message);
+      throwParseError(this, inode.loc.start, ex.message);
     }
     txt = '`' + txt + '`'; // 将文本转成 es6 字符串表达式
     const { isConst, codes } = parseExpr(this, txt, inode.loc.start);
@@ -188,7 +185,7 @@ ${body}
     }
     const etag = inode.rawName;
     if (etag.startsWith('_') && etag !== '_slot') {
-      throw logParseError(
+      throwParseError(
         this,
         inode.loc.start,
         'html tag starts with "_" is compiler preserved tag name. Current version only support: "<_slot>". see https://todo"',
@@ -208,10 +205,10 @@ ${body}
     }
     // 最后看是否是合法的 html/svg 标签
     if (this._parent.isSVG && SVGTags.indexOf(etag) < 0) {
-      throw logParseError(this, inode.loc.start, `${etag} is not known svg tag.`);
+      throwParseError(this, inode.loc.start, `${etag} is not known svg tag.`);
     }
     if (!this._parent.isSVG && (HTMLTags as string[]).indexOf(etag) < 0) {
-      throw logParseError(
+      throwParseError(
         this,
         inode.loc.start,
         `'${etag}' is not known html tag, do you forgot to config component alias or import it on the top?`,
@@ -233,7 +230,7 @@ ${body}
         ecmaVersion: 'latest',
       }) as unknown as Program;
     } catch (ex) {
-      throw logParseError(
+      throwParseError(
         this,
         inode.loc.start,
         'keyword "import" is found in comment, but got error when tring to parse it as js code.',

@@ -1,12 +1,10 @@
 import { randomBytes } from 'crypto';
-import { Node } from 'acorn';
+import { Parser, Node } from 'acorn';
 import { Expression, ExpressionStatement } from 'estree';
 import { Position } from './common';
-import { logParseError } from './helper';
+import { throwParseError } from './helper';
 import { parseExprNode } from './parseExprNode';
 import { TemplateVisitor } from './visitor';
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const acorn = require('acorn');
 
 export function parseExpr(_visitor: TemplateVisitor, txt: string, position: Position) {
   // console.log(txt);
@@ -31,22 +29,22 @@ export function parseExpr(_visitor: TemplateVisitor, txt: string, position: Posi
   const source = txt.replace(/\bclass\b/g, classSymbol);
   let expr;
   try {
-    expr = acorn.Parser.parse(source, {
+    expr = Parser.parse(source, {
       locations: true,
       ecmaVersion: 'latest',
     }) as unknown as { body: ExpressionStatement[] };
   } catch (ex) {
-    logParseError(_visitor, position, 'expression grammar error.');
+    throwParseError(_visitor, position, 'expression grammar error.');
   }
   if (expr.body.length > 1 || expr.body[0].type !== 'ExpressionStatement') {
-    logParseError(_visitor, position, 'expression only support single ExpressionStatement. see https://[todo].');
+    throwParseError(_visitor, position, 'expression only support single ExpressionStatement. see https://[todo].');
   }
   expr = expr.body[0].expression;
   if (mayBeObject && expr.type !== 'ObjectExpression') {
-    logParseError(_visitor, position, 'expression startsWith "{" must be ObjectExpression. see https://[todo].');
+    throwParseError(_visitor, position, 'expression startsWith "{" must be ObjectExpression. see https://[todo].');
   }
   if (mayBeArray && expr.type !== 'ArrayExpression') {
-    logParseError(_visitor, position, 'expression startsWith "[" must be ArrayExpression. see https://[todo].');
+    throwParseError(_visitor, position, 'expression startsWith "[" must be ArrayExpression. see https://[todo].');
   }
   const info = {
     startLine: position.line,

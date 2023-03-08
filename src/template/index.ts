@@ -86,7 +86,6 @@ export class TemplateParser {
     });
     const visitor = new TemplateVisitor({
       source,
-      emitErrorFn: this.emitErrorFn,
       resourcePath: this.resourcePath,
       addDebugName: this.addDebugName,
     });
@@ -98,6 +97,7 @@ export class TemplateParser {
         aliasImports: '',
         imports: '',
         renderFn: replaceTplStr(ERROR, {
+          MESSAGE: '`' + (ex.message || ex.toString()).replace(/ /g, '&nbsp;').replace(/\n/g, '<br/>') + '`',
           POSTFIX: SYMBOL_POSTFIX,
         }),
       };

@@ -3,7 +3,7 @@ import { Node, Parser } from 'acorn';
 import { getReplaceResult, ReplaceItem, sortedInsert } from '../../util';
 import { TemplateVisitor } from './visitor';
 import { Position } from './common';
-import { logParseError, walkAcorn } from './helper';
+import { throwParseError, walkAcorn } from './helper';
 
 function getVarVmReflect(varName: string, _visitor: TemplateVisitor) {
   const vmVar = _visitor._vms.find((v) => v.name === varName);
@@ -23,11 +23,11 @@ export function parseListener(_visitor: TemplateVisitor, str: string, tag: Recor
       sourceType: 'module',
     }) as unknown as { body: ExpressionStatement[] };
   } catch (ex) {
-    throw logParseError(_visitor, pos, 'parse error: ' + ex.message);
+    throwParseError(_visitor, pos, 'parse error: ' + ex.message);
   }
 
   if (!tree.body?.length) {
-    throw logParseError(_visitor, pos, 'empty event listener');
+    throwParseError(_visitor, pos, 'empty event listener');
   }
 
   const replaces: ReplaceItem[] = [];

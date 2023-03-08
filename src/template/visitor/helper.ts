@@ -5,7 +5,7 @@ import { prependTab, SYMBOL_POSTFIX } from '../../util';
 import { TemplateVisitor } from './visitor';
 import { Position } from './common';
 
-export function logParseError(_visitor: TemplateVisitor, tokenPosition: Position, msg: string) {
+export function throwParseError(_visitor: TemplateVisitor, tokenPosition: Position, msg: string) {
   let idx = -1;
   for (let i = 0; i < tokenPosition.line - 1; i++) {
     idx = _visitor._source.indexOf('\n', idx + 1);
@@ -15,12 +15,10 @@ export function logParseError(_visitor: TemplateVisitor, tokenPosition: Position
   const srcline = _visitor._source.substring(idx, eidx > idx ? eidx : _visitor._source.length);
   const trimSrcline = srcline.trimStart();
   const spc = tokenPosition.column - 1 - (srcline.length - trimSrcline.length);
-  _visitor._emitErrorFn(
-    new Error(`${msg}
+  throw new Error(`${msg}
   > ${path.relative(process.cwd(), _visitor._resourcePath)}, Ln ${tokenPosition.line}, Col ${tokenPosition.column}
   > ${trimSrcline}
-    ${new Array(spc).fill(' ').join('')}^^^`),
-  );
+    ${new Array(spc).fill(' ').join('')}^^^`);
 }
 
 export function replaceTpl(str: string, ctx?: Record<string, string>) {
