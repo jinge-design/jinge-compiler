@@ -22,6 +22,7 @@ export function parseComponentElement(
   if (tag === 'for' && !result.vms.find((v) => v.reflect === 'each')) {
     throwParseError(_visitor, inode.loc.start, '<for> component require vm:each attribute.');
   }
+  if (tag === 'if') debugger;
   let elements = _visitor.visitChildNodes(inode.body, result.vms, {
     type: 'component',
     sub: result.argPass || result.vms.length > 0 ? 'argument' : result.argUse ? 'parameter' : 'normal',
@@ -29,6 +30,9 @@ export function parseComponentElement(
   });
   if (tag === '_slot' && elements.length === 0 && result.argPass) {
     throwParseError(_visitor, inode.loc.start, '<_slot> component with slot-pass: attribute must have child.');
+  }
+  if (_visitor._parent.type === 'html') {
+    _visitor._parent.hasCompChild = true;
   }
   const hasArg = _visitor._assert_arg_pass(inode.loc.start, elements, tag);
   if (result.vms.length > 0 && !result.argPass && hasArg) {
@@ -132,30 +136,14 @@ ${result.argAttrs
   .join('\n')}`;
 
   const code =
-    '...(() => {\n' +
+    '...await (() => {\n' +
     prependTab2Space(
       `
 ${vmAttrs}
 const el = ${Component}.create(attrs);
-${
-  /*result.translateAttrs
-  .map((at, i) => {
-    const attr = at[1];
-    if (attr.type === 'const') {
-      return replaceTpl(TPL.ATTR_I18N_COMP_CONST_OFF, {
-        ROOT_INDEX: (result.argAttrs.length + i).toString(),
-      });
-    } else {
-      return replaceTpl(TPL.ATTR_I18N_COMP_EXPR_OFF, {
-        ROOT_INDEX: (result.argAttrs.length + i).toString(),
-      });
-    }
-  })
-.join('\n')*/ ''
-}
 ${setRefCode}
 ${_visitor._parent.type === 'component' ? replaceTpl(TPL.PUSH_ROOT_ELE) : replaceTpl(TPL.PUSH_COM_ELE)}
-return assertRenderResults${SYMBOL_POSTFIX}(el.__render());`,
+return el.__render();`,
       true,
     ) +
     '\n})()';
