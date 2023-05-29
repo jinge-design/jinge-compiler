@@ -10,7 +10,6 @@ import { parseArgUseParameter } from './parseArgUseParameter';
 import { Parent, ParsedElement } from './common';
 
 export function parseHtmlElement(_visitor: TemplateVisitor, etag: string, inode: ITag): ParsedElement {
-  if (etag === 'tr') debugger;
   const result = parseAttributes(_visitor, 'html', etag, inode.attributes, _visitor._parent) as ParseAttributesResult;
   const ctx: Parent = {
     type: 'html',
@@ -19,10 +18,10 @@ export function parseHtmlElement(_visitor: TemplateVisitor, etag: string, inode:
   };
   // visitChildNodes 会递归遍历子元素，递归时如果遍历到组件类型的元素，ctx.hasCompChild 会被置为 true
   const elements = _visitor.visitChildNodes(inode.body, result.vms, ctx);
-  if (ctx.hasCompChild && _visitor._parent.type === 'html') {
-    // 如果子元素中有组件类型，且父元素也是 html 类型，则向上传递。
-    _visitor._parent.hasCompChild = true;
-  }
+  // if (ctx.hasCompChild && _visitor._parent.type === 'html') {
+  //   // 如果子元素中有组件类型，且父元素也是 html 类型，则向上传递。
+  //   _visitor._parent.hasCompChild = true;
+  // }
   const setRefCode = result.ref
     ? replaceTpl(SET_REF_ELE, {
         NAME: result.ref,
@@ -59,7 +58,8 @@ export function parseHtmlElement(_visitor: TemplateVisitor, etag: string, inode:
     pushEleCode
   ) {
     code =
-      `${ctx.hasCompChild ? 'await (async ' : '('}() => {\n` +
+      // `${ctx.hasCompChild ? 'await (async ' : '('}() => {\n` +
+      '(() => {\n' +
       prependTab2Space(
         ` 
 const el = ${ce}(
@@ -118,7 +118,7 @@ ${pushEleCode}
 return el;`,
         true,
       ) +
-      `\n})()`;
+      '\n})()';
   } else {
     code = `${ce}(\n${prependTab2Space(arr.join(',\n'))}\n)`;
   }

@@ -110,7 +110,8 @@ export class TemplateVisitor {
 return [
 ${this._join_elements(elements)}
 ];`);
-    return `async function(component) {
+    // return `async function(component) {
+    return `function(component) {  
 ${body}
 }`;
   }

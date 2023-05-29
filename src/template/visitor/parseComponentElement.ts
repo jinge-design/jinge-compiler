@@ -22,7 +22,7 @@ export function parseComponentElement(
   if (tag === 'for' && !result.vms.find((v) => v.reflect === 'each')) {
     throwParseError(_visitor, inode.loc.start, '<for> component require vm:each attribute.');
   }
-  if (tag === 'if') debugger;
+
   let elements = _visitor.visitChildNodes(inode.body, result.vms, {
     type: 'component',
     sub: result.argPass || result.vms.length > 0 ? 'argument' : result.argUse ? 'parameter' : 'normal',
@@ -31,9 +31,9 @@ export function parseComponentElement(
   if (tag === '_slot' && elements.length === 0 && result.argPass) {
     throwParseError(_visitor, inode.loc.start, '<_slot> component with slot-pass: attribute must have child.');
   }
-  if (_visitor._parent.type === 'html') {
-    _visitor._parent.hasCompChild = true;
-  }
+  // if (_visitor._parent.type === 'html') {
+  //   _visitor._parent.hasCompChild = true;
+  // }
   const hasArg = _visitor._assert_arg_pass(inode.loc.start, elements, tag);
   if (result.vms.length > 0 && !result.argPass && hasArg) {
     throwParseError(
@@ -136,7 +136,8 @@ ${result.argAttrs
   .join('\n')}`;
 
   const code =
-    '...await (() => {\n' +
+    // '...await (() => {\n' +
+    '...(() => {\n' +
     prependTab2Space(
       `
 ${vmAttrs}

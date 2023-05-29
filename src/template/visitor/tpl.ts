@@ -13,7 +13,8 @@ $CODE$
   return el;
 })()`;
 
-export const PARAMETER = `...await (() => {
+// export const PARAMETER = `...await (() => {
+export const PARAMETER = `...(() => {
   const __ac = $VM_RENDERER$[__$POSTFIX$].slots;
   const renderFn = __ac && __ac['$ARG_USE$'] ? __ac['$ARG_USE$'] : $DEFAULT$;
   const attrs = attrs$POSTFIX$({
