@@ -65,10 +65,10 @@ export class ComponentAliasManager {
         IfComponent: 'if',
         ForComponent: 'for',
         SwitchComponent: 'switch',
-        HideComponent: 'hide',
+        ShowComponent: 'show',
         BindHtmlComponent: 'bind-html',
-        ToggleClassComponent: 'toggle-class',
         DynamicRenderComponent: 'dynamic',
+        TransitionComponent: 'transition',
       },
     });
     for (const source in componentAlias) {

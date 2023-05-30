@@ -63,9 +63,9 @@ export function parseAttributes(
   }
 
   // const translateAttrs: Record<string, TranslateAttribute> = {};
-  const argAttrs: Record<string, string> = {};
-  const constAttrs: Record<string, string> = {};
+
   const exprAttrs: { a_name: string; aval: string; pos: Position }[] = [];
+  const exprAttrsKeys: Set<string> = new Set();
   const listenerAttrs: Record<string, Lis> = {};
   const vms: VM[] = [];
   const vmPass: { name: string; expr: string; pos: Position }[] = [];
@@ -86,7 +86,13 @@ export function parseAttributes(
     if (attr_data.length === 1) {
       a_name = a_category;
       a_category = 'str';
+      // @ 打头的属性是事件监听的语法糖
+      if (a_name.startsWith('@')) {
+        a_category = 'on';
+        a_name = a_name.slice(1);
+      }
     }
+
     if (!a_category) {
       a_category = 'expr';
     }
@@ -231,9 +237,12 @@ export function parseAttributes(
       return;
     }
 
-    if (a_name in constAttrs || a_name in argAttrs) {
+    if (exprAttrsKeys.has(a_name)) {
       throwParseError(_visitor, iattr.loc.start, 'dulplicated attribute: ' + a_name);
+    } else {
+      exprAttrsKeys.add(a_name);
     }
+
     if (!aval) {
       a_category = 'expr';
       aval = 'true';
@@ -469,6 +478,8 @@ export function parseAttributes(
     _visitor._vms = pVms.slice().concat(vms);
   }
 
+  const argAttrs: Record<string, string> = {};
+  const constAttrs: Record<string, string> = {};
   exprAttrs.forEach(({ a_name, aval, pos }) => {
     const res = parseExpr(_visitor, aval, pos);
     const code = res.isConst ? res.codes[0] : res.codes.join('\n');
