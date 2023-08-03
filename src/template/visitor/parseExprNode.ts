@@ -276,8 +276,8 @@ function _notify_${lv_id}() {
       const needWrapViewModel = expr.type === 'ObjectExpression' || expr.type === 'ArrayExpression';
       calcCodes.push(`function _calc_${levelId}() {
   $RENDER_START$${needWrapViewModel ? `vm${SYMBOL_POSTFIX}(` : ''}${getReplaceResult(replaces, info.source, expr)}${
-        needWrapViewModel ? ')' : ''
-      }$RENDER_END$
+    needWrapViewModel ? ')' : ''
+  }$RENDER_END$
 }`);
       initCodes.push(`_calc_${levelId}();`);
       updateCodes.unshift(`function _update_${levelId}() {\n  _calc_${levelId}();\n}`);
