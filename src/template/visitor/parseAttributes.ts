@@ -15,7 +15,7 @@ export interface VMPassAttribute {
   expr: string[];
 }
 export interface TranslateAttribute {
-  type: 'expr' | 'const';
+  type: 'expr' | 'code';
   value: string;
 }
 
@@ -36,6 +36,9 @@ export interface ParseAttributesResult {
   argUse: ArgUseAttribute | null;
 }
 
+function wrapAttrValueToExpr(aval: string) {
+  return '`' + aval.replace(/`/g, '\\`') + '`';
+}
 export function parseAttributes(
   _visitor: TemplateVisitor,
   mode: 'html' | 'component',
@@ -63,10 +66,24 @@ export function parseAttributes(
   }
 
   // const translateAttrs: Record<string, TranslateAttribute> = {};
-
-  const exprAttrs: { a_name: string; aval: string; pos: Position }[] = [];
+  interface Att {
+    a_name: string;
+    aval: string;
+    pos: Position;
+  }
+  interface ClassStyleAtt {
+    type: 'str' | 'expr';
+    aval: string;
+    pos: Position;
+  }
+  const exprAttrs: Att[] = [];
   const exprAttrsKeys: Set<string> = new Set();
   const listenerAttrs: Record<string, Lis> = {};
+  // class 和 style 属性，允许多次重复。常见的情况是，有部分 class 是固定的，剩下的是变量。
+  // 比如 tailwindcss 的 class 和业务参数控制的 class 进行组合时，原生的 class 属性支持 ide 智能提示
+  const classAttrs: ClassStyleAtt[] = [];
+  const styleAttrs: ClassStyleAtt[] = [];
+
   const vms: VM[] = [];
   const vmPass: { name: string; expr: string; pos: Position }[] = [];
   const pVms = _visitor._vms;
@@ -237,24 +254,66 @@ export function parseAttributes(
       return;
     }
 
-    if (exprAttrsKeys.has(a_name)) {
-      throwParseError(_visitor, iattr.loc.start, 'dulplicated attribute: ' + a_name);
+    if (a_name !== 'class' && a_name !== 'style') {
+      if (exprAttrsKeys.has(a_name)) {
+        throwParseError(_visitor, iattr.loc.start, 'dulplicated attribute: ' + a_name);
+      } else {
+        exprAttrsKeys.add(a_name);
+      }
+      if (!aval) {
+        a_category = 'expr';
+        aval = 'true';
+      }
+
+      if (a_category === 'str') {
+        aval = wrapAttrValueToExpr(aval);
+      }
+      // 此处先暂存所有表达式属性，等 vm-use: 等属性解析完成后，再 parse_expr，以便进行可能需要的 vm-use: 的映射。
+      exprAttrs.push({ a_name, aval, pos: iattr.value?.loc.start || iattr.loc.start });
     } else {
-      exprAttrsKeys.add(a_name);
+      if (aval) {
+        (a_name === 'class' ? classAttrs : styleAttrs).push({
+          type: a_category === 'str' ? 'str' : 'expr',
+          aval: aval,
+          pos: iattr.value?.loc.start || iattr.loc.start,
+        });
+      }
     }
-
-    if (!aval) {
-      a_category = 'expr';
-      aval = 'true';
-    }
-
-    if (a_category === 'str') {
-      aval = '`' + aval + '`';
-    }
-    // 此处先暂存所有表达式属性，等 vm-use: 等属性解析完成后，再 parse_expr，以便进行可能需要的 vm-use: 的映射。
-    exprAttrs.push({ a_name, aval, pos: iattr.value?.loc.start || iattr.loc.start });
   });
 
+  function handleClassOrStyleAtts(atname: 'class' | 'style') {
+    const attrs = atname === 'class' ? classAttrs : styleAttrs;
+    if (attrs.length === 0) return;
+    if (attrs.length === 1) {
+      exprAttrs.push({
+        a_name: atname,
+        aval: attrs[0].type === 'str' ? wrapAttrValueToExpr(attrs[0].aval) : attrs[0].aval,
+        pos: attrs[0].pos,
+      });
+      return;
+    }
+    const isAllStr = !attrs.some((at) => at.type !== 'str');
+    if (isAllStr) {
+      exprAttrs.push({
+        a_name: atname,
+        aval: wrapAttrValueToExpr(attrs.map((at) => at.aval.trim()).join(atname === 'class' ? ' ' : ';')),
+        pos: attrs[0].pos,
+      });
+    } else {
+      exprAttrs.push({
+        a_name: atname,
+        aval: `[${attrs
+          .map(({ type, aval }) => {
+            if (type === 'str') return wrapAttrValueToExpr(aval);
+            else return aval;
+          })
+          .join(', ')}]`,
+        pos: attrs[0].pos,
+      });
+    }
+  }
+  handleClassOrStyleAtts('class');
+  handleClassOrStyleAtts('style');
   /*
    * The logic is so complex that I have to write
    * Chinese comment to keep myself not forget it.
